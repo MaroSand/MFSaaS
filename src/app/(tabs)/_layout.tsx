@@ -4,7 +4,7 @@ import { usePermissions } from "../../hooks";
 import { colors } from "../../theme";
 
 export default function TabsLayout() {
-  const { canViewClients, canViewLogistics, canViewReports } = usePermissions();
+  const { canViewClients } = usePermissions();
 
   return (
     <Tabs
@@ -56,24 +56,24 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="clients/[clientId]"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="clients/form"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="clients/debtors"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="logistics/index"
-        options={{
-          title: "Mi Camión",
-          href: canViewLogistics ? undefined : null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="car-outline" size={size} color={color} />
-          ),
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="reports/index"
-        options={{
-          title: "Reportes",
-          href: canViewReports ? undefined : null,
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="bar-chart-outline" size={size} color={color} />
-          ),
-        }}
+        options={{ href: null }}
       />
     </Tabs>
   );

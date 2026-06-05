@@ -1,3 +1,5 @@
 export { useAuth } from './useAuth';
-export { usePermissions } from './usePermissions';
+export { useClients } from './useClients';
 export { useOfflineQueue } from './useOfflineQueue';
+export { usePermissions } from './usePermissions';
+
