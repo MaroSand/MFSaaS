@@ -70,6 +70,25 @@ export interface IClientSummary {
   taxId: string;
 }
 
+export interface IClientDetail extends IClient {
+  orderHistory: IOrder[];
+  lastOrderDate?: string; // ISO 8601
+  notes?: string;
+}
+
+export interface IDebtor {
+  client: IClientSummary;
+  totalDebt: number;
+  overdueOrders: IOrder[]; // Pedidos con deuda pendiente
+}
+
+export interface IPayment {
+  clientId: string;
+  amount: number;
+  method: 'cash' | 'transfer' | 'mixed';
+  date: string;
+}
+
 // ─── Order ───────────────────────────────────────────────────────────────────
 
 export interface IOrderItem {
