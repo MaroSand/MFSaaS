@@ -1,7 +1,7 @@
-import { Tabs } from 'expo-router';
-import { usePermissions } from '../../hooks';
-import { colors } from '../../theme';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from "@expo/vector-icons";
+import { Tabs } from "expo-router";
+import { usePermissions } from "../../hooks";
+import { colors } from "../../theme";
 
 export default function TabsLayout() {
   const { canViewClients, canViewLogistics, canViewReports } = usePermissions();
@@ -12,45 +12,67 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textDisabled,
-        tabBarStyle: { borderTopColor: colors.border, backgroundColor: colors.surface },
+        tabBarStyle: {
+          borderTopColor: colors.border,
+          backgroundColor: colors.surface,
+        },
       }}
     >
       <Tabs.Screen
         name="catalog/index"
         options={{
-          title: 'Catálogo',
-          tabBarIcon: ({ color, size }) => <Ionicons name="grid-outline" size={size} color={color} />,
+          title: "Catálogo",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="grid-outline" size={size} color={color} />
+          ),
         }}
       />
+
+      {/* 🛠️ AGREGAMOS ESTA PANTALLA ACÁ PARA OCULTAR EL BOTÓN FANTASMA DE LA BARRA INFERIOR */}
+      <Tabs.Screen
+        name="catalog/[productId]"
+        options={{
+          href: null, // Esto lo remueve por completo del menú de pestañas
+        }}
+      />
+
       <Tabs.Screen
         name="orders/index"
         options={{
-          title: 'Pedidos',
-          tabBarIcon: ({ color, size }) => <Ionicons name="clipboard-outline" size={size} color={color} />,
+          title: "Pedidos",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="clipboard-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="clients/index"
         options={{
-          title: 'Clientes',
+          title: "Clientes",
           href: canViewClients ? undefined : null,
-          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="logistics/index"
         options={{
-          title: 'Mi Camión',
+          title: "Mi Camión",
           href: canViewLogistics ? undefined : null,
-          tabBarIcon: ({ color, size }) => <Ionicons name="car-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="car-outline" size={size} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="reports/index"
         options={{
-          title: 'Reportes',
+          title: "Reportes",
           href: canViewReports ? undefined : null,
-          tabBarIcon: ({ color, size }) => <Ionicons name="bar-chart-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bar-chart-outline" size={size} color={color} />
+          ),
         }}
       />
     </Tabs>
