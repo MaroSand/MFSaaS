@@ -1,117 +1,126 @@
 /**
  * clientsService.ts
- * Servicio para gestión de clientes.
- * Fase mock: usa mockHandlers. Fase real: reemplazar con llamadas a API real.
+ * Conectado al backend real (customer-controller).
+ * Endpoints disponibles: /customer/get, /customer/get/{id}, /customer/save,
+ * /customer/update/{id}, /customer/delete/{id}, /customer/desactivate/{id}
+ *
+ * NOTA: el backend aún no expone addresses, totalDebt, detalle con historial,
+ * deudores ni pagos. Esos métodos quedan marcados con TODO hasta que existan
+ * los endpoints correspondientes.
  */
 import { IClient, IClientDetail, IDebtor, IOrder, IPayment } from '../../types';
+import { client } from './client';
 
-// During mock phase, import from mockHandlers
-import {
-    mockCreateClient,
-    mockGetClientById,
-    mockGetClientDetail,
-    mockGetClientHistory,
-    mockGetClients,
-    mockGetDebtors,
-    mockRegisterPayment,
-    mockUpdateClient,
-} from '../mock/mockHandlers';
+// Shape real que devuelve el backend (CustomerDto)
+interface CustomerDto {
+  id?: number;
+  businessName: string;
+  taxId: string;
+  name: string;
+  phone: string;
+  email: string;
+  active: boolean;
+}
+
+// Mapea CustomerDto (backend) -> IClient (frontend)
+function toIClient(dto: CustomerDto): IClient {
+  return {
+    id: String(dto.id),
+    businessName: dto.businessName,
+    taxId: dto.taxId,
+    phone: dto.phone,
+    email: dto.email,
+    active: dto.active,
+    addresses: [],   // TODO: backend no expone direcciones todavía
+    totalDebt: 0,    // TODO: backend no expone deuda todavía
+  };
+}
+
+// Mapea IClient (frontend) -> CustomerDto (backend)
+function toCustomerDto(data: Partial<IClient>): Partial<CustomerDto> {
+  return {
+    businessName: data.businessName,
+    taxId: data.taxId,
+    name: data.businessName, // el backend pide "name" además de "businessName"
+    phone: data.phone,
+    email: data.email,
+  };
+}
 
 export const clientsService = {
   /**
-   * Obtiene listado de clientes con paginación y búsqueda.
-   * Fase real: GET /clients?search=&page=
+   * GET /customer/get
+   * El backend no soporta search ni paginación todavía: se filtra/pagina en el cliente.
    */
   async getClients(search = '', page = 1): Promise<{ items: IClient[]; total: number }> {
-    // En fase mock, redirigir a mockHandlers
-    return mockGetClients(search, page);
-    
-    // Fase real (comentado):
-    // const response = await client.get('/clients', { params: { search, page } });
-    // return response.data;
+    const response = await client.get<CustomerDto[]>('/customer/get');
+    let items = response.data.map(toIClient);
+
+    if (search) {
+      const q = search.toLowerCase();
+      items = items.filter(
+        c => c.businessName.toLowerCase().includes(q) || c.taxId.includes(q)
+      );
+    }
+
+    const pageSize = 20;
+    const total = items.length;
+    const start = (page - 1) * pageSize;
+    return { items: items.slice(start, start + pageSize), total };
   },
 
-  /**
-   * Obtiene un cliente por ID.
-   * Fase real: GET /clients/:id
-   */
+  /** GET /customer/get/{id} */
   async getClientById(id: string): Promise<IClient> {
-    return mockGetClientById(id);
-    
-    // Fase real (comentado):
-    // const response = await client.get(`/clients/${id}`);
-    // return response.data;
+    const response = await client.get<CustomerDto>(`/customer/get/${id}`);
+    return toIClient(response.data);
   },
 
   /**
-   * Obtiene detalle completo del cliente con historial.
-   * Fase real: GET /clients/:id/detail
+   * TODO: backend no tiene endpoint de detalle con historial todavía.
+   * Por ahora arma el detalle con lo básico + historial vacío.
    */
   async getClientDetail(id: string): Promise<IClientDetail> {
-    return mockGetClientDetail(id);
-    
-    // Fase real (comentado):
-    // const response = await client.get(`/clients/${id}/detail`);
-    // return response.data;
+    const base = await this.getClientById(id);
+    return { ...base, orderHistory: [] };
   },
 
-  /**
-   * Obtiene historial de órdenes de un cliente.
-   * Fase real: GET /clients/:id/history?from=&to=
-   */
-  async getClientHistory(id: string, from?: string, to?: string): Promise<IOrder[]> {
-    return mockGetClientHistory(id);
-    
-    // Fase real (comentado):
-    // const response = await client.get(`/clients/${id}/history`, { params: { from, to } });
-    // return response.data;
+  /** TODO: requiere endpoint tipo GET /customer/{id}/history en el backend */
+  async getClientHistory(_id: string, _from?: string, _to?: string): Promise<IOrder[]> {
+    console.warn('getClientHistory: endpoint no implementado en el backend aún');
+    return [];
   },
 
-  /**
-   * Obtiene listado de clientes con deuda pendiente.
-   * Fase real: GET /clients/debtors
-   */
+  /** TODO: requiere endpoint tipo GET /customer/debtors en el backend */
   async getDebtors(): Promise<{ items: IDebtor[] }> {
-    return mockGetDebtors();
-    
-    // Fase real (comentado):
-    // const response = await client.get('/clients/debtors');
-    // return response.data;
+    console.warn('getDebtors: endpoint no implementado en el backend aún');
+    return { items: [] };
   },
 
-  /**
-   * Crea un nuevo cliente.
-   * Fase real: POST /clients
-   */
+  /** POST /customer/save */
   async createClient(dto: Omit<IClient, 'id'>): Promise<IClient> {
-    return mockCreateClient(dto);
-    
-    // Fase real (comentado):
-    // const response = await client.post('/clients', dto);
-    // return response.data;
+    const response = await client.post<CustomerDto>('/customer/save', toCustomerDto(dto));
+    return toIClient(response.data);
   },
 
-  /**
-   * Actualiza un cliente existente.
-   * Fase real: PUT /clients/:id
-   */
+  /** PUT /customer/update/{id} */
   async updateClient(id: string, dto: Partial<IClient>): Promise<IClient> {
-    return mockUpdateClient(id, dto);
-    
-    // Fase real (comentado):
-    // const response = await client.put(`/clients/${id}`, dto);
-    // return response.data;
+    const response = await client.put<CustomerDto>(`/customer/update/${id}`, toCustomerDto(dto));
+    return toIClient(response.data);
   },
 
-  /**
-   * Registra un pago para un cliente.
-   * Fase real: POST /clients/:id/payments
-   */
-  async registerPayment(clientId: string, amount: number, method: 'cash' | 'transfer' | 'mixed'): Promise<IPayment> {
-    return mockRegisterPayment(clientId, amount, method);
-    
-    // Fase real (comentado):
-    // const response = await client.post(`/clients/${clientId}/payments`, { amount, method });
-    // return response.data;
+  /** DELETE /customer/delete/{id} — baja definitiva */
+  async deleteClient(id: string): Promise<void> {
+    await client.delete(`/customer/delete/${id}`);
+  },
+
+  /** PATCH /customer/desactivate/{id} — baja lógica (soft delete) */
+  async deactivateClient(id: string): Promise<void> {
+    await client.patch(`/customer/desactivate/${id}`);
+  },
+
+  /** TODO: requiere endpoint tipo POST /customer/{id}/payments en el backend */
+  async registerPayment(_clientId: string, _amount: number, _method: 'cash' | 'transfer' | 'mixed'): Promise<IPayment> {
+    console.warn('registerPayment: endpoint no implementado en el backend aún');
+    throw new Error('Endpoint de pagos no implementado en el backend todavía');
   },
 };

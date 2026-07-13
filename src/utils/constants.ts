@@ -1,4 +1,4 @@
-export const BASE_URL = 'https://api.mfff.com/v1';
+export const BASE_URL = 'https://superadditional-septariate-olevia.ngrok-free.dev';
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {
   pending:   'Pendiente',
