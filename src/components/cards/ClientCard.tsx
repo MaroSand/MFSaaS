@@ -36,6 +36,12 @@ export const ClientCard: React.FC<ClientCardProps> = ({ client, onPress, showDeb
           )}
         </View>
 
+        {isClient(clientData) && !clientData.active && (
+          <View style={styles.inactiveBadge}>
+            <Text style={styles.inactiveBadgeText}>Inactivo</Text>
+          </View>
+        )}
+
         {/* Footer info */}
         <View style={styles.footer}>
           <Text style={styles.taxId} numberOfLines={1}>
@@ -97,6 +103,19 @@ const styles = StyleSheet.create({
   },
   footer: {
     gap: spacing.xs,
+  },
+  inactiveBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+    marginBottom: spacing.sm,
+  },
+  inactiveBadgeText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
   taxId: {
     ...typography.caption,

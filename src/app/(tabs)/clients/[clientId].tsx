@@ -2,15 +2,15 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -30,6 +30,7 @@ export default function ClientDetailScreen() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'mixed'>('cash');
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [deactivating, setDeactivating] = useState(false);
 
   useEffect(() => {
     fetchClientDetail();
@@ -54,6 +55,32 @@ export default function ClientDetailScreen() {
       pathname: '/(tabs)/clients/form',
       params: { clientId },
     });
+  };
+
+  const handleDeactivateClient = () => {
+    Alert.alert(
+      'Desactivar cliente',
+      `¿Seguro que querés desactivar a ${client?.businessName}? No vas a poder generarle pedidos nuevos hasta reactivarlo.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Desactivar',
+          style: 'destructive',
+          onPress: async () => {
+            if (!clientId) return;
+            try {
+              setDeactivating(true);
+              await clientsService.deactivateClient(clientId);
+              await fetchClientDetail();
+            } catch (err) {
+              Alert.alert('Error', 'No se pudo desactivar el cliente');
+            } finally {
+              setDeactivating(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleRegisterPayment = async () => {
@@ -123,7 +150,14 @@ export default function ClientDetailScreen() {
       >
         {/* Client Info Card */}
         <View style={styles.infoCard}>
-          <Text style={styles.businessName}>{client.businessName}</Text>
+          <View style={styles.infoCardHeader}>
+            <Text style={styles.businessName}>{client.businessName}</Text>
+            {!client.active && (
+              <View style={styles.inactiveBadge}>
+                <Text style={styles.inactiveBadgeText}>Inactivo</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.infoRow}>
             <Ionicons name="card" size={16} color={colors.textSecondary} />
             <Text style={styles.infoText}>CUIT: {client.taxId}</Text>
@@ -219,6 +253,25 @@ export default function ClientDetailScreen() {
             <Text style={styles.noOrdersText}>Sin historial de pedidos</Text>
           )}
         </View>
+        {/* Deactivate client */}
+        {client.active && (
+          <View style={styles.dangerSection}>
+            <TouchableOpacity
+              style={styles.deactivateButton}
+              onPress={handleDeactivateClient}
+              disabled={deactivating}
+            >
+              {deactivating ? (
+                <ActivityIndicator color={colors.error} />
+              ) : (
+                <>
+                  <Ionicons name="person-remove-outline" size={18} color={colors.error} />
+                  <Text style={styles.deactivateButtonText}>Desactivar cliente</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* Payment Button */}
@@ -369,6 +422,39 @@ const styles = StyleSheet.create({
     ...typography.subheading,
     color: colors.textPrimary,
     marginBottom: spacing.md,
+  },
+  infoCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+  },
+  inactiveBadge: {
+    backgroundColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.sm,
+  },
+  inactiveBadgeText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  dangerSection: {
+    marginTop: spacing.lg,
+    alignItems: 'center',
+  },
+  deactivateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  deactivateButtonText: {
+    ...typography.label,
+    color: colors.error,
+    fontWeight: '600',
   },
   infoRow: {
     flexDirection: 'row',

@@ -60,6 +60,7 @@ export interface IClient {
   taxId: string; // CUIT o DNI
   phone: string;
   email: string;
+  active: boolean;
   addresses: IAddress[];
   totalDebt: number;
 }
