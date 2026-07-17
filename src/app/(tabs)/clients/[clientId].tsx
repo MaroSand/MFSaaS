@@ -31,6 +31,7 @@ export default function ClientDetailScreen() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'mixed'>('cash');
   const [processingPayment, setProcessingPayment] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
+  const [activating, setActivating] = useState(false);
 
   useEffect(() => {
     fetchClientDetail();
@@ -76,6 +77,31 @@ export default function ClientDetailScreen() {
               Alert.alert('Error', 'No se pudo desactivar el cliente');
             } finally {
               setDeactivating(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleActivateClient = () => {
+    Alert.alert(
+      'Activar cliente',
+      `¿Querés reactivar a ${client?.businessName}? Vas a poder volver a generarle pedidos.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Activar',
+          onPress: async () => {
+            if (!clientId) return;
+            try {
+              setActivating(true);
+              await clientsService.activateClient(clientId);
+              await fetchClientDetail();
+            } catch (err) {
+              Alert.alert('Error', 'No se pudo activar el cliente');
+            } finally {
+              setActivating(false);
             }
           },
         },
@@ -272,6 +298,26 @@ export default function ClientDetailScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        {/* Activate client */}
+        {!client.active && (
+          <View style={styles.dangerSection}>
+            <TouchableOpacity
+              style={styles.activateButton}
+              onPress={handleActivateClient}
+              disabled={activating}
+            >
+              {activating ? (
+                <ActivityIndicator color={colors.success} />
+              ) : (
+                <>
+                  <Ionicons name="person-add-outline" size={18} color={colors.success} />
+                  <Text style={styles.activateButtonText}>Activar cliente</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       {/* Payment Button */}
@@ -454,6 +500,18 @@ const styles = StyleSheet.create({
   deactivateButtonText: {
     ...typography.label,
     color: colors.error,
+    fontWeight: '600',
+  },
+  activateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  activateButtonText: {
+    ...typography.label,
+    color: colors.success,
     fontWeight: '600',
   },
   infoRow: {

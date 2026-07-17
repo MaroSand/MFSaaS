@@ -4,9 +4,11 @@ import { BASE_URL } from '../../utils/constants';
 export const client = axios.create({
   baseURL: BASE_URL,
   timeout: 10000,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'ngrok-skip-browser-warning': 'true', // evita la página de interstitial de ngrok free
+  },
 });
-
 // Request interceptor: agrega token
 client.interceptors.request.use(config => {
   // TODO: leer token de authStore cuando se implemente
