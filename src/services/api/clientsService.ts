@@ -2,7 +2,8 @@
  * clientsService.ts
  * Conectado al backend real (customer-controller).
  * Endpoints disponibles: /customer/get, /customer/get/{id}, /customer/save,
- * /customer/update/{id}, /customer/delete/{id}, /customer/desactivate/{id}
+ * /customer/update/{id}, /customer/delete/{id}, /customer/desactivate/{id},
+ * /customer/activate/{id}
  *
  * NOTA: el backend aún no expone addresses, totalDebt, detalle con historial,
  * deudores ni pagos. Esos métodos quedan marcados con TODO hasta que existan
@@ -116,6 +117,15 @@ export const clientsService = {
   /** PATCH /customer/desactivate/{id} — baja lógica (soft delete) */
   async deactivateClient(id: string): Promise<void> {
     await client.patch(`/customer/desactivate/${id}`);
+  },
+
+  /**
+   * PATCH /customer/activate/{id} — reactiva un cliente dado de baja lógica.
+   * NOTA: verificar el nombre exacto de la ruta contra /v3/api-docs; se asumió
+   * el mismo patrón que /customer/desactivate/{id}.
+   */
+  async activateClient(id: string): Promise<void> {
+    await client.patch(`/customer/activate/${id}`);
   },
 
   /** TODO: requiere endpoint tipo POST /customer/{id}/payments en el backend */
