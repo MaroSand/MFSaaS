@@ -1,4 +1,4 @@
-export const BASE_URL = 'https://superadditional-septariate-olevia.ngrok-free.dev';
+export const BASE_URL = 'https://superadditional-septariate-olevia.ngrok-free.dev/api';
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {
   pending:   'Pendiente',

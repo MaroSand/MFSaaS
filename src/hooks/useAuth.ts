@@ -1,9 +1,9 @@
 import { useState } from 'react';
+import { mockLogin, mockUpdateProfile } from '../services/mock/mockHandlers';
 import { useAuthStore } from '../store';
-import { mockLogin } from '../services/mock/mockHandlers';
 
 export function useAuth() {
-  const { setAuth, clearAuth, user, isAuthenticated, hasPermission } = useAuthStore();
+  const { setAuth, clearAuth, user, isAuthenticated, hasPermission, updateUser } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -24,5 +24,21 @@ export function useAuth() {
     clearAuth();
   }
 
-  return { login, logout, user, isAuthenticated, isLoading, error, hasPermission };
+  async function editProfile(changes: { fullName?: string; username?: string }) {
+    if (!user) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const updated = await mockUpdateProfile(user.id, changes);
+      updateUser(updated);
+      return updated;
+    } catch (e: any) {
+      setError(e.message ?? 'Error al actualizar el perfil');
+      throw e;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return { login, logout, editProfile, user, isAuthenticated, isLoading, error, hasPermission };
 }
