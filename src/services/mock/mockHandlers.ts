@@ -21,6 +21,15 @@ export async function mockLogin(username: string, password: string): Promise<{ u
   };
 }
 
+export async function mockUpdateProfile(userId: string, dto: Partial<Pick<IUser, 'fullName' | 'username'>>): Promise<IUser> {
+  await delay(800);
+  const userIndex = MOCK_USERS.findIndex(u => u.id === userId);
+  if (userIndex === -1) throw new Error('Usuario no encontrado');
+
+  MOCK_USERS[userIndex] = { ...MOCK_USERS[userIndex], ...dto };
+  return MOCK_USERS[userIndex];
+}
+
 // ─── Products ────────────────────────────────────────────────────────────────
 
 export async function mockGetProducts(search = '', categoryId = ''): Promise<IProduct[]> {

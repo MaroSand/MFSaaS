@@ -55,6 +55,19 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+      {/* "profile" es una sola entrada: tiene su propio _layout.tsx (Stack) adentro,
+          así que edit/about viven ahí y no aparecen como tabs sueltas */}
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Perfil",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person-outline" size={size} color={color} />
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="clients/[clientId]"
         options={{ href: null }}

@@ -10,6 +10,7 @@ interface AuthState {
   setAuth: (user: IUser, accessToken: string, refreshToken: string) => void;
   clearAuth: () => void;
   hasPermission: (permission: string) => boolean;
+  updateUser: (changes: Partial<IUser>) => void;
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -23,6 +24,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   clearAuth: () =>
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false }),
+
+  updateUser: (changes) =>
+    set((state) => (state.user ? { user: { ...state.user, ...changes } } : state)),
 
   hasPermission: (permission: string) => {
     const { user } = get();
