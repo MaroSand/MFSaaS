@@ -37,6 +37,15 @@ export default function TabsLayout() {
       />
 
       <Tabs.Screen
+        name="catalog/categories/index"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="catalog/categories/form"
+        options={{ href: null }}
+      />
+
+      <Tabs.Screen
         name="orders/index"
         options={{
           title: "Pedidos",
