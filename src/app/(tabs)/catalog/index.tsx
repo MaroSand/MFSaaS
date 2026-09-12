@@ -1,4 +1,5 @@
 // src/app/(tabs)/catalog/index.tsx
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
@@ -88,6 +89,18 @@ export default function CatalogScreen() {
 
   return (
     <View style={styles.container}>
+      {/* Header con acceso a gestión de categorías */}
+      <View style={styles.catalogHeader}>
+        <Text style={styles.catalogHeaderTitle}>Catálogo</Text>
+        <TouchableOpacity
+          style={styles.manageCategoriesButton}
+          onPress={() => router.push("/(tabs)/catalog/categories" as any)}
+        >
+          <Ionicons name="pricetags-outline" size={18} color="#7B1C1C" />
+          <Text style={styles.manageCategoriesText}>Categorías</Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Buscador */}
       <View style={styles.searchContainer}>
         <TextInput
@@ -189,6 +202,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F8F8F8", // colors.background
+  },
+  catalogHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    backgroundColor: "#FFFFFF",
+  },
+  catalogHeaderTitle: {
+    fontSize: 22,
+    fontWeight: "bold",
+    color: "#1A1A1A",
+  },
+  manageCategoriesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "#F5E6E6",
+  },
+  manageCategoriesText: {
+    color: "#7B1C1C",
+    fontSize: 13,
+    fontWeight: "600",
   },
   searchContainer: {
     padding: 16,

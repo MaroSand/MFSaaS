@@ -15,10 +15,11 @@ export interface IAuthTokens {
 }
 
 // ─── Category ────────────────────────────────────────────────────────────────
-
 export interface ICategory {
   id: string;
   name: string;
+  parentCategoryId?: string;
+  active?: boolean;
 }
 
 // ─── Product ─────────────────────────────────────────────────────────────────
