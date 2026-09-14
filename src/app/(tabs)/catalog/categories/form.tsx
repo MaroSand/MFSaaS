@@ -3,14 +3,14 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -159,7 +159,7 @@ export default function CategoryFormScreen() {
 
           {/* Parent category selector */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Categoría padre (opcional)</Text>
+            <Text style={styles.label}>Seleccione una categoría principal (opcional)</Text>
             {loadingCategories ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.sm }} />
             ) : (
@@ -207,7 +207,7 @@ export default function CategoryFormScreen() {
               />
             )}
             <Text style={styles.helperText}>
-              Elegí una categoría padre si esta es una subcategoría.
+              Elegí una categoría principal si esta es una subcategoría.
             </Text>
           </View>
 

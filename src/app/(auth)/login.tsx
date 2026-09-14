@@ -72,11 +72,6 @@ export default function LoginScreen() {
             fullWidth
             style={styles.loginBtn}
           />
-
-          {/* Dev hint */}
-          <View style={styles.devHint}>
-            <Text style={styles.devHintText}>🛠 Mock: usuario cualquiera + contraseña 1234</Text>
-          </View>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
