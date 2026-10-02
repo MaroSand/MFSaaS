@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
 import { colors, radius, spacing, typography } from '../../theme';
 import { ICategory } from '../../types';
 
@@ -9,6 +9,8 @@ interface CategoryCardProps {
   parentName?: string;
   onPress: () => void;
   onLongPress?: () => void;
+  onToggleActive?: (nextValue: boolean) => void;
+  togglingActive?: boolean;
 }
 
 export const CategoryCard: React.FC<CategoryCardProps> = ({
@@ -16,12 +18,14 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
   parentName,
   onPress,
   onLongPress,
+  onToggleActive,
+  togglingActive,
 }) => {
   const isInactive = category.active === false;
 
   return (
     <TouchableOpacity
-      style={styles.container}
+      style={[styles.container, isInactive && styles.containerInactive]}
       onPress={onPress}
       onLongPress={onLongPress}
       activeOpacity={0.7}
@@ -30,9 +34,16 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
         <Ionicons name="pricetag-outline" size={20} color={colors.primary} />
       </View>
       <View style={styles.content}>
-        <Text style={styles.name} numberOfLines={1}>
-          {category.name}
-        </Text>
+        <View style={styles.nameRow}>
+          <Text style={[styles.name, isInactive && styles.nameInactive]} numberOfLines={1}>
+            {category.name}
+          </Text>
+          {isInactive && (
+            <View style={styles.inactiveBadge}>
+              <Text style={styles.inactiveBadgeText}>Inactiva</Text>
+            </View>
+          )}
+        </View>
         {parentName ? (
           <Text style={styles.parent} numberOfLines={1}>
             Subcategoría de {parentName}
@@ -41,11 +52,21 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
           <Text style={styles.parent}>Categoría principal</Text>
         )}
       </View>
-      {isInactive && (
-        <View style={styles.inactiveBadge}>
-          <Text style={styles.inactiveBadgeText}>Inactiva</Text>
-        </View>
-      )}
+
+      {/* Toggle rápido de activo/inactivo, sin depender del long-press */}
+      {onToggleActive &&
+        (togglingActive ? (
+          <ActivityIndicator color={colors.primary} style={styles.toggleSpace} />
+        ) : (
+          <Switch
+            value={!isInactive}
+            onValueChange={onToggleActive}
+            trackColor={{ false: colors.border, true: colors.primaryLight }}
+            thumbColor={!isInactive ? colors.primary : colors.textDisabled}
+            style={styles.toggleSpace}
+          />
+        ))}
+
       <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
     </TouchableOpacity>
   );
@@ -64,6 +85,10 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
   },
+  containerInactive: {
+    backgroundColor: colors.background,
+    opacity: 0.75,
+  },
   iconWrap: {
     width: 36,
     height: 36,
@@ -75,15 +100,27 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
   name: {
     ...typography.body,
     fontWeight: '600',
     color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  nameInactive: {
+    color: colors.textSecondary,
   },
   parent: {
     ...typography.caption,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  toggleSpace: {
+    marginRight: spacing.xs,
   },
   inactiveBadge: {
     backgroundColor: colors.border,
