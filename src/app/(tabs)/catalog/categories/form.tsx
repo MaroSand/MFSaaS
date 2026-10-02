@@ -7,6 +7,7 @@ import {
   Alert,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -30,9 +31,19 @@ export default function CategoryFormScreen() {
   const isEditMode = !!categoryId;
 
   const [loading, setLoading] = useState(isEditMode);
+  // Antes, si este fetch fallaba, se mostraba un Alert y se hacía router.back()
+  // a ciegas — eso era la "navegación errática": si no había una pantalla
+  // anterior clara en el stack, back() terminaba en el catálogo o el home.
+  // Ahora el error se muestra ACÁ, sin navegar, con botón para reintentar.
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [categories, setCategories] = useState<ICategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+
+  // Estado activo/inactivo de la categoría (solo relevante en edición)
+  const [isActive, setIsActive] = useState(true);
+  const [initialActive, setInitialActive] = useState(true);
+  const [togglingActive, setTogglingActive] = useState(false);
 
   const {
     control,
@@ -68,16 +79,39 @@ export default function CategoryFormScreen() {
   const loadCategory = async (id: string) => {
     try {
       setLoading(true);
+      setLoadError(null);
       const category = await catalogService.getCategoryById(id);
       reset({
         name: category.name,
         parentCategoryId: category.parentCategoryId || '',
       });
+      const active = category.active !== false;
+      setIsActive(active);
+      setInitialActive(active);
     } catch (err) {
-      Alert.alert('Error', 'No se pudo cargar la categoría');
-      router.back();
+      setLoadError('No se pudo cargar la categoría. Revisá tu conexión e intentá de nuevo.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleActive = async (value: boolean) => {
+    if (!isEditMode || !categoryId) return;
+    const previous = isActive;
+    setIsActive(value); // feedback optimista
+    setTogglingActive(true);
+    try {
+      if (value) {
+        await catalogService.activateCategory(categoryId);
+      } else {
+        await catalogService.deactivateCategory(categoryId);
+      }
+      setInitialActive(value);
+    } catch (err) {
+      setIsActive(previous); // revierte si falló
+      Alert.alert('Error', `No se pudo ${value ? 'activar' : 'desactivar'} la categoría`);
+    } finally {
+      setTogglingActive(false);
     }
   };
 
@@ -117,6 +151,30 @@ export default function CategoryFormScreen() {
     );
   }
 
+  if (loadError) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Editar categoría</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={[styles.centerContent, { flex: 1, paddingHorizontal: spacing.xl }]}>
+          <Ionicons name="alert-circle" size={48} color={colors.error} />
+          <Text style={styles.errorTitle}>{loadError}</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => categoryId && loadCategory(categoryId)}
+          >
+            <Text style={styles.retryButtonText}>Reintentar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Header */}
@@ -136,6 +194,38 @@ export default function CategoryFormScreen() {
         contentContainerStyle={{ paddingBottom: spacing.xl + spacing.lg }}
       >
         <View style={styles.formContainer}>
+          {/* Estado activo/inactivo (solo en edición) */}
+          {isEditMode && (
+            <View style={styles.statusRow}>
+              <View style={{ flex: 1 }}>
+                <View style={styles.statusLabelRow}>
+                  <Text style={styles.label}>Categoría activa</Text>
+                  {!isActive && (
+                    <View style={styles.statusBadge}>
+                      <Text style={styles.statusBadgeText}>Inactiva</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.helperText}>
+                  {isActive
+                    ? 'Visible en el catálogo y disponible para nuevos productos.'
+                    : 'Oculta del catálogo. Los productos existentes no se eliminan.'}
+                </Text>
+              </View>
+              {togglingActive ? (
+                <ActivityIndicator color={colors.primary} style={{ marginLeft: spacing.md }} />
+              ) : (
+                <Switch
+                  value={isActive}
+                  onValueChange={handleToggleActive}
+                  trackColor={{ false: colors.border, true: colors.primaryLight }}
+                  thumbColor={isActive ? colors.primary : colors.textDisabled}
+                  style={{ marginLeft: spacing.md }}
+                />
+              )}
+            </View>
+          )}
+
           {/* Name */}
           <View style={styles.fieldContainer}>
             <Text style={styles.label}>Nombre *</Text>
@@ -159,7 +249,7 @@ export default function CategoryFormScreen() {
 
           {/* Parent category selector */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Seleccione una categoría principal (opcional)</Text>
+            <Text style={styles.label}>Categoría padre (opcional)</Text>
             {loadingCategories ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.sm }} />
             ) : (
@@ -207,7 +297,7 @@ export default function CategoryFormScreen() {
               />
             )}
             <Text style={styles.helperText}>
-              Elegí una categoría principal si esta es una subcategoría.
+              Elegí una categoría padre si esta es una subcategoría.
             </Text>
           </View>
 
@@ -273,6 +363,51 @@ const styles = StyleSheet.create({
   },
   fieldContainer: {
     marginBottom: spacing.lg,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  statusLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  statusBadge: {
+    backgroundColor: colors.errorLight,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  statusBadgeText: {
+    ...typography.caption,
+    color: colors.error,
+    fontWeight: '600',
+  },
+  errorTitle: {
+    ...typography.subheading,
+    color: colors.error,
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+  },
+  retryButtonText: {
+    ...typography.label,
+    color: colors.textInverse,
+    fontWeight: '600',
   },
   label: {
     ...typography.label,

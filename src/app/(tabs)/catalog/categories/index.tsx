@@ -3,14 +3,14 @@ import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -100,29 +100,23 @@ export default function CategoriesListScreen() {
     Alert.alert(category.name, 'Elegí una acción', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Editar', onPress: () => handleEdit(category) },
-      {
-        text: category.active === false ? 'Activar' : 'Desactivar',
-        onPress: () => handleToggleActive(category),
-      },
       { text: 'Eliminar', style: 'destructive', onPress: () => handleDelete(category) },
     ]);
   };
 
-  const renderCategory = ({ item }: { item: ICategory }) => (
-    <View>
-      {busyId === item.id ? (
-        <View style={styles.busyOverlay}>
-          <ActivityIndicator color={colors.primary} />
-        </View>
-      ) : null}
+  const renderCategory = ({ item }: { item: ICategory }) => {
+    const isBusy = busyId === item.id;
+    return (
       <CategoryCard
         category={item}
         parentName={parentNameOf(item)}
-        onPress={() => handleEdit(item)}
-        onLongPress={() => handleLongPress(item)}
+        onPress={() => !isBusy && handleEdit(item)}
+        onLongPress={() => !isBusy && handleLongPress(item)}
+        onToggleActive={() => handleToggleActive(item)}
+        togglingActive={isBusy}
       />
-    </View>
-  );
+    );
+  };
 
   const renderListEmpty = () => {
     if (loading) {
@@ -261,17 +255,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingBottom: spacing.xl + spacing.lg,
     paddingTop: spacing.sm,
-  },
-  busyOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.6)',
   },
   emptyContainer: {
     flex: 1,

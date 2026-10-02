@@ -53,10 +53,27 @@ export const catalogService = {
     return response.data.map(toICategory);
   },
 
-  /** GET /category/get/{id} */
+  /**
+   * GET /category/get/{id}
+   * El swagger declara "id" como query param a pesar de traerlo en el path.
+   * Se prueba primero la ruta con el id en el path (estándar REST); si el
+   * backend responde 400/404, se reintenta con ?id= antes de fallar. Esto
+   * es lo que causaba que la edición de una categoría funcionara "a veces sí,
+   * a veces no": no era un problema de navegación, era este fetch fallando
+   * silenciosamente y la pantalla volviendo atrás por error.
+   */
   async getCategoryById(id: string): Promise<ICategory> {
-    const response = await client.get<CategoryDto>(`/category/get/${id}`);
-    return toICategory(response.data);
+    try {
+      const response = await client.get<CategoryDto>(`/category/get/${id}`);
+      return toICategory(response.data);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 400 || status === 404) {
+        const response = await client.get<CategoryDto>('/category/get', { params: { id } });
+        return toICategory(response.data);
+      }
+      throw err;
+    }
   },
 
   /** POST /category/save */
@@ -65,10 +82,27 @@ export const catalogService = {
     return toICategory(response.data);
   },
 
-  /** PUT /category/update/{id} */
+  /**
+   * PUT /category/update/{id}
+   * Mismo fallback que getCategoryById: si el path falla con 400/404,
+   * reintenta pasando el id como query param.
+   */
   async updateCategory(id: string, dto: Partial<ICategory>): Promise<ICategory> {
-    const response = await client.put<CategoryDto>(`/category/update/${id}`, toCategoryRequest(dto));
-    return toICategory(response.data);
+    try {
+      const response = await client.put<CategoryDto>(`/category/update/${id}`, toCategoryRequest(dto));
+      return toICategory(response.data);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 400 || status === 404) {
+        const response = await client.put<CategoryDto>(
+          '/category/update',
+          toCategoryRequest(dto),
+          { params: { id } },
+        );
+        return toICategory(response.data);
+      }
+      throw err;
+    }
   },
 
   /** DELETE /category/delete/{id} — baja definitiva */
