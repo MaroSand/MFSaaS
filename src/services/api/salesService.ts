@@ -59,7 +59,7 @@ function toOrderListItem(order: RawOrder): OrderListItem {
 }
 
 export const salesService = {
-  async getOrders(filters: { customerId?: number; status?: ApiOrderStatus } = {}): Promise<OrderListItem[]> {
+  async getOrders(filters: { customerId?: number; truckId?: number; status?: ApiOrderStatus } = {}): Promise<OrderListItem[]> {
     const response = await client.get<unknown>('/orders', { params: filters });
     return unwrapList(response.data).map(toOrderListItem);
   },

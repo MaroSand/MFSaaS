@@ -10,7 +10,7 @@ export interface Truck {
 
 export interface TruckWriteRequest {
   licensePlate: string;
-  driverId?: number;
+  driverId?: number | null;
 }
 
 export interface TruckStockItem {

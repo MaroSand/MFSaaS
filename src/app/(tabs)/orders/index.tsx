@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -7,13 +8,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
 import { clientsService } from '../../../services/api/clientsService';
+import { logisticsService, Truck } from '../../../services/api/logisticsService';
 import { OrderListItem, salesService } from '../../../services/api/salesService';
 import { useCartStore } from '../../../store/cartStore';
+import { useAuthStore } from '../../../store/authStore';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { IAddress, IClient, IClientSummary } from '../../../types';
 import { parseApiError } from '../../../utils/apiErrors';
@@ -21,6 +25,10 @@ import { parseApiError } from '../../../utils/apiErrors';
 type ScreenMode = 'new' | 'history';
 
 const money = (value: number) => `$${value.toLocaleString('es-AR')}`;
+const localToday = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 const statusCopy: Record<string, string> = {
   PENDING: 'Pendiente',
@@ -30,8 +38,11 @@ const statusCopy: Record<string, string> = {
 };
 
 export default function OrdersScreen() {
+  const router = useRouter();
+  const user = useAuthStore(state => state.user);
+  const isDriver = user?.role === 'delivery';
   const { items, total, updateQty, clearCart } = useCartStore();
-  const [mode, setMode] = useState<ScreenMode>('new');
+  const [mode, setMode] = useState<ScreenMode>(isDriver ? 'history' : 'new');
   const [clients, setClients] = useState<IClientSummary[]>([]);
   const [selectedClient, setSelectedClient] = useState<IClientSummary | null>(null);
   const [addresses, setAddresses] = useState<IAddress[]>([]);
@@ -43,8 +54,14 @@ export default function OrdersScreen() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [cancelConfirmOrder, setCancelConfirmOrder] = useState<OrderListItem | null>(null);
   const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [trucks, setTrucks] = useState<Truck[]>([]);
+  const [selectedTruckId, setSelectedTruckId] = useState<string | null>(null);
+  const [deliveryDate, setDeliveryDate] = useState(localToday());
+  const [loadingTrucks, setLoadingTrucks] = useState(false);
+  const [truckError, setTruckError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
+  const [canLoadTruckStock, setCanLoadTruckStock] = useState(false);
 
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
@@ -63,16 +80,34 @@ export default function OrdersScreen() {
     setLoadingOrders(true);
     setOrderError(null);
     try {
-      setOrders(await salesService.getOrders());
+      if (isDriver && !user?.truckId) {
+        setOrders([]);
+        setOrderError('Tu usuario todavía no está asignado a un camión. Pedile a un administrador que lo configure.');
+      } else {
+        setOrders(await salesService.getOrders(isDriver ? { truckId: Number(user?.truckId) } : {}));
+      }
     } catch (error) {
       setOrderError(parseApiError(error, 'No se pudieron cargar los pedidos.').message);
     } finally {
       setLoadingOrders(false);
     }
+  }, [isDriver, user?.truckId]);
+
+  const loadTrucks = useCallback(async () => {
+    setLoadingTrucks(true);
+    setTruckError(null);
+    try {
+      setTrucks(await logisticsService.getActiveTrucks());
+    } catch (error) {
+      setTruckError(parseApiError(error, 'No se pudieron cargar los camiones activos.').message);
+    } finally {
+      setLoadingTrucks(false);
+    }
   }, []);
 
   useEffect(() => { void loadClients(); }, [loadClients]);
-  useEffect(() => { if (mode === 'history') void loadOrders(); }, [mode, loadOrders]);
+  useEffect(() => { void loadTrucks(); }, [loadTrucks]);
+  useEffect(() => { if (isDriver || mode === 'history') void loadOrders(); }, [isDriver, mode, loadOrders]);
 
   const chooseClient = async (clientSummary: IClientSummary) => {
     setSelectedClient(clientSummary);
@@ -91,7 +126,7 @@ export default function OrdersScreen() {
     }
   };
 
-  const handleCreateOrder = async () => {
+  const handleCreateOrder = async (loadMissingTruckStock = false) => {
     if (!selectedClient) {
       setOrderError('Elegí un cliente para continuar.');
       return;
@@ -111,17 +146,52 @@ export default function OrdersScreen() {
       setOrderError('Agregá al menos un producto y verificá sus cantidades.');
       return;
     }
+    const validDate = /^\d{4}-\d{2}-\d{2}$/.test(deliveryDate) && !Number.isNaN(Date.parse(`${deliveryDate}T00:00:00`));
+    if (!validDate) {
+      setOrderError('Ingresá una fecha de entrega válida con formato AAAA-MM-DD.');
+      return;
+    }
+    const truckId = selectedTruckId == null ? undefined : Number(selectedTruckId);
+    if (truckId != null && (!Number.isInteger(truckId) || truckId < 1)) {
+      setOrderError('El camión seleccionado no tiene un ID válido del servidor.');
+      return;
+    }
     setSubmitting(true);
     setOrderError(null);
+    setCanLoadTruckStock(false);
     try {
-      const created = await salesService.createOrder({ customerId, deliveryAddressId, items: orderItems });
+      const assignedTruck = trucks.find(truck => truck.id === selectedTruckId);
+      if (truckId && loadMissingTruckStock) {
+        const currentStock = await logisticsService.getTruckStock(String(truckId), deliveryDate);
+        for (const item of orderItems) {
+          const entries = currentStock.filter(stockItem => stockItem.productId === String(item.productId) && (!stockItem.deliveryDate || stockItem.deliveryDate === deliveryDate));
+          const available = entries.reduce((sum, stockItem) => sum + Math.max(0, stockItem.quantityLoaded - stockItem.quantityReturned), 0);
+          const missing = Math.max(0, item.quantity - available);
+          if (missing > 0) {
+            const existingEntry = entries[0];
+            if (existingEntry) {
+              await logisticsService.updateStock(existingEntry.id, { quantityLoaded: existingEntry.quantityLoaded + missing, quantityReturned: existingEntry.quantityReturned });
+            } else {
+              await logisticsService.loadProduct(String(truckId), { productId: item.productId, deliveryDate, quantityLoaded: missing });
+            }
+          }
+        }
+      }
+      const created = await salesService.createOrder({ customerId, deliveryAddressId, items: orderItems, deliveryDate, ...(truckId ? { truckId } : {}) });
       clearCart();
       setSelectedClient(null);
       setAddresses([]);
       setSelectedAddress(null);
-      Alert.alert('Pedido enviado', created.id ? `Se registró el pedido ${created.code}.` : 'El backend recibió el pedido.');
+      setSelectedTruckId(null);
+      setCanLoadTruckStock(false);
+      Alert.alert('Pedido enviado', `${created.id ? `Se registró el pedido ${created.code}.` : 'El backend recibió el pedido.'}${assignedTruck ? ` Asignado a ${assignedTruck.licensePlate}.` : ' Quedó sin asignar a un camión.'}`);
     } catch (error) {
-      setOrderError(parseApiError(error, 'No se pudo registrar el pedido. Tus productos siguen en el carrito; podés reintentar.').message);
+      const message = parseApiError(error, 'No se pudo registrar el pedido. Tus productos siguen en el carrito; podés reintentar.').message;
+      const stockShortage = truckId && /insufficient stock in truck/i.test(message);
+      setCanLoadTruckStock(!!stockShortage);
+      setOrderError(stockShortage
+        ? 'El camión no tiene cargadas las unidades necesarias. Podés cargar las cantidades faltantes desde este pedido y volver a enviarlo; el pedido sigue guardado en el carrito.'
+        : message);
     } finally {
       setSubmitting(false);
     }
@@ -143,6 +213,8 @@ export default function OrdersScreen() {
       setUpdatingOrderId(null);
     }
   };
+
+  const openCatalog = () => router.push('/(tabs)/catalog' as any);
 
   const renderOrder = (order: OrderListItem) => (
     <View key={order.id || order.code} style={styles.orderCard}>
@@ -179,21 +251,21 @@ export default function OrdersScreen() {
       <View style={styles.heading}>
         <View>
           <Text style={styles.eyebrow}>VENTAS</Text>
-          <Text style={styles.title}>{mode === 'new' ? 'Nuevo pedido' : 'Pedidos'}</Text>
+          <Text style={styles.title}>{!isDriver && mode === 'new' ? 'Nuevo pedido' : 'Pedidos'}</Text>
         </View>
         <View style={styles.headingIcon}><Ionicons name={mode === 'new' ? 'receipt-outline' : 'reader-outline'} size={22} color={colors.primary} /></View>
       </View>
 
-      <View style={styles.modeSwitch}>
+      {!isDriver && <View style={styles.modeSwitch}>
         <TouchableOpacity style={[styles.modeButton, mode === 'new' && styles.modeButtonActive]} onPress={() => setMode('new')}>
           <Text style={[styles.modeText, mode === 'new' && styles.modeTextActive]}>Armar pedido{items.length ? ` · ${items.length}` : ''}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.modeButton, mode === 'history' && styles.modeButtonActive]} onPress={() => setMode('history')}>
           <Text style={[styles.modeText, mode === 'history' && styles.modeTextActive]}>Historial</Text>
         </TouchableOpacity>
-      </View>
+      </View>}
 
-      {mode === 'history' ? (
+      {isDriver || mode === 'history' ? (
         <View style={styles.section}>
           <View style={styles.sectionHeading}>
             <View><Text style={styles.sectionTitle}>Actividad reciente</Text><Text style={styles.sectionHint}>Seguimiento de pedidos del backend</Text></View>
@@ -204,7 +276,7 @@ export default function OrdersScreen() {
         </View>
       ) : (
         <>
-          {!!orderError && <FormErrorBanner message={orderError} onRetry={() => void handleCreateOrder()} />}
+          {!!orderError && <FormErrorBanner message={orderError} onRetry={() => void handleCreateOrder(canLoadTruckStock)} retryLabel={canLoadTruckStock ? 'Cargar faltantes y reintentar' : 'Reintentar'} disabled={submitting} />}
           {!!loadError && <FormErrorBanner message={loadError} onRetry={loadClients} />}
           <View style={styles.section}>
             <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>1. Cliente</Text><Text style={styles.sectionHint}>Seleccioná quién recibe el pedido</Text></View></View>
@@ -229,17 +301,44 @@ export default function OrdersScreen() {
           </View>}
 
           <View style={styles.section}>
-            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>3. Productos</Text><Text style={styles.sectionHint}>Revisá cantidades antes de enviar</Text></View></View>
+            <View style={styles.sectionHeading}>
+              <View><Text style={styles.sectionTitle}>3. Productos</Text><Text style={styles.sectionHint}>{items.length ? 'Revisá cantidades antes de enviar' : 'Elegí productos para armar el pedido'}</Text></View>
+              <TouchableOpacity style={styles.addProductsButton} onPress={openCatalog} disabled={submitting}>
+                <Ionicons name="add" size={17} color={colors.primary} />
+                <Text style={styles.addProductsText}>{items.length ? 'Agregar más' : 'Ver catálogo'}</Text>
+              </TouchableOpacity>
+            </View>
             {items.length ? items.map(item => <View key={item.productId} style={styles.itemCard}>
               <View style={styles.itemInfo}><Text style={styles.itemName}>{item.productName}</Text><Text style={styles.itemDetails}>{money(item.unitPrice)} · {item.unit}</Text><Text style={styles.itemSubtotal}>{money(item.subtotal)}</Text></View>
               <View style={styles.counter}><TouchableOpacity style={styles.counterButton} onPress={() => updateQty(item.productId, item.qty - 1)} disabled={submitting}><Ionicons name="remove" size={18} color={colors.primary} /></TouchableOpacity><Text style={styles.quantity}>{item.qty}</Text><TouchableOpacity style={styles.counterButton} onPress={() => updateQty(item.productId, item.qty + 1)} disabled={submitting}><Ionicons name="add" size={18} color={colors.primary} /></TouchableOpacity></View>
-            </View>) : <View style={styles.emptyCard}><Ionicons name="basket-outline" size={28} color={colors.textSecondary} /><Text style={styles.emptyTitle}>El carrito está vacío</Text><Text style={styles.emptyText}>Agregá productos desde el catálogo para armar el pedido.</Text></View>}
+            </View>) : <View style={styles.emptyCard}><Ionicons name="basket-outline" size={28} color={colors.textSecondary} /><Text style={styles.emptyTitle}>El carrito está vacío</Text><Text style={styles.emptyText}>Explorá el catálogo y agregá productos. Al volver, van a seguir en tu pedido.</Text><TouchableOpacity style={styles.emptyCatalogButton} onPress={openCatalog} disabled={submitting}><Ionicons name="grid-outline" size={18} color={colors.textInverse} /><Text style={styles.emptyCatalogButtonText}>Elegir productos</Text></TouchableOpacity></View>}
+          </View>
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>4. Entrega y camión</Text><Text style={styles.sectionHint}>El camión debe tener cargadas las unidades del pedido</Text></View><TouchableOpacity onPress={() => void loadTrucks()} disabled={loadingTrucks} accessibilityLabel="Actualizar camiones"><Ionicons name="refresh-outline" size={18} color={colors.primary} /></TouchableOpacity></View>
+            <Text style={styles.dateLabel}>Fecha de entrega</Text>
+            <TextInput value={deliveryDate} onChangeText={value => { setDeliveryDate(value); setOrderError(null); setCanLoadTruckStock(false); }} style={styles.deliveryDateInput} placeholder="AAAA-MM-DD" maxLength={10} editable={!submitting} />
+            <Text style={styles.sectionHint}>La carga faltante se puede registrar desde el pedido si el backend la solicita.</Text>
+            <Text style={styles.truckLabel}>Camión <Text style={styles.optionalLabel}>(opcional)</Text></Text>
+            {!!truckError && <FormErrorBanner message={truckError} onRetry={loadTrucks} />}
+            {loadingTrucks ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : trucks.length ? (
+              <View style={styles.truckChoices}>
+                <TouchableOpacity style={[styles.truckChoice, selectedTruckId === null && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(null); setOrderError(null); setCanLoadTruckStock(false); }} disabled={submitting}>
+                  <Ionicons name={selectedTruckId === null ? 'radio-button-on' : 'radio-button-off'} size={18} color={selectedTruckId === null ? colors.primary : colors.textSecondary} />
+                  <Text style={[styles.truckChoiceText, selectedTruckId === null && styles.truckChoiceTextActive]}>Sin asignar</Text>
+                </TouchableOpacity>
+                {trucks.map(truck => <TouchableOpacity key={truck.id} style={[styles.truckChoice, selectedTruckId === truck.id && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(truck.id); setOrderError(null); setCanLoadTruckStock(false); }} disabled={submitting}>
+                  <Ionicons name={selectedTruckId === truck.id ? 'radio-button-on' : 'radio-button-off'} size={18} color={selectedTruckId === truck.id ? colors.primary : colors.textSecondary} />
+                  <View style={styles.truckChoiceInfo}><Text style={[styles.truckChoiceText, selectedTruckId === truck.id && styles.truckChoiceTextActive]}>{truck.licensePlate}</Text><Text style={styles.truckDriver}>{truck.driverName ?? (truck.driverId ? `Chofer ID ${truck.driverId}` : 'Sin chofer asignado')}</Text></View>
+                </TouchableOpacity>)}
+              </View>
+            ) : <Text style={styles.emptyText}>No hay camiones activos. Podés enviar el pedido sin asignarlo.</Text>}
           </View>
 
           <View style={styles.footer}>
             <View style={styles.totalRow}><View><Text style={styles.totalLabel}>TOTAL ESTIMADO</Text><Text style={styles.totalNote}>El backend calcula el importe final</Text></View><Text style={styles.totalAmount}>{money(total())}</Text></View>
             <TouchableOpacity style={[styles.submitButton, (submitting || !items.length || !selectedClient || !selectedAddress) && styles.submitDisabled]} onPress={() => void handleCreateOrder()} disabled={submitting || !items.length || !selectedClient || !selectedAddress}>
-              {submitting ? <ActivityIndicator color={colors.textInverse} /> : <><Ionicons name="checkmark-circle-outline" size={20} color={colors.textInverse} /><Text style={styles.submitText}>Enviar pedido</Text></>}
+              {submitting ? <><ActivityIndicator color={colors.textInverse} /><Text style={styles.submitText}>Enviando pedido…</Text></> : <><Ionicons name="checkmark-circle-outline" size={20} color={colors.textInverse} /><Text style={styles.submitText}>Enviar pedido</Text></>}
             </TouchableOpacity>
             {!!items.length && <TouchableOpacity style={styles.clearButton} onPress={() => Alert.alert('Vaciar pedido', '¿Querés quitar todos los productos del carrito?', [{ text: 'Seguir editando', style: 'cancel' }, { text: 'Vaciar', style: 'destructive', onPress: clearCart }])} disabled={submitting}><Text style={styles.clearText}>Vaciar carrito</Text></TouchableOpacity>}
           </View>
@@ -287,6 +386,8 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
   sectionHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  addProductsButton: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primaryLight },
+  addProductsText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   clientChip: { maxWidth: '100%', paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.full, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
   clientChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
@@ -299,6 +400,17 @@ const styles = StyleSheet.create({
   addressLabel: { ...typography.label, color: colors.textPrimary },
   addressText: { ...typography.caption, color: colors.textSecondary, marginTop: 3 },
   defaultTag: { ...typography.caption, color: colors.primary, fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+  optionalLabel: { ...typography.caption, color: colors.textSecondary, fontWeight: '400' },
+  dateLabel: { ...typography.caption, color: colors.textPrimary, fontWeight: '700', marginBottom: spacing.xs },
+  deliveryDateInput: { ...typography.body, color: colors.textPrimary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, marginBottom: spacing.xs },
+  truckLabel: { ...typography.caption, color: colors.textPrimary, fontWeight: '700', marginTop: spacing.md, marginBottom: spacing.sm },
+  truckChoices: { gap: spacing.sm },
+  truckChoice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  truckChoiceActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  truckChoiceInfo: { flex: 1 },
+  truckChoiceText: { ...typography.label, color: colors.textPrimary },
+  truckChoiceTextActive: { color: colors.primary },
+  truckDriver: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   itemCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
   itemInfo: { flex: 1, paddingRight: spacing.md },
   itemName: { ...typography.body, color: colors.textPrimary, fontWeight: '700' },
@@ -320,6 +432,8 @@ const styles = StyleSheet.create({
   emptyCard: { alignItems: 'center', backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.xl },
   emptyTitle: { ...typography.label, color: colors.textPrimary, marginTop: spacing.sm },
   emptyText: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs },
+  emptyCatalogButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, backgroundColor: colors.primary, borderRadius: radius.md, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, marginTop: spacing.md },
+  emptyCatalogButtonText: { ...typography.label, color: colors.textInverse, fontWeight: '700' },
   refreshButton: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight, borderRadius: radius.full },
   orderCard: { backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   orderTop: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.sm },

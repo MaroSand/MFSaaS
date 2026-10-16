@@ -5,8 +5,12 @@ export interface IUser {
   username: string;
   fullName: string;
   role: 'owner' | 'seller' | 'delivery' | 'manager' | 'unknown';
+  roleId?: string;
+  roleName?: string;
   permissions: string[];
   tenantId: string;
+  truckId?: string;
+  truckLicensePlate?: string;
 }
 
 export interface IAuthTokens {
