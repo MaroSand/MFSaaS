@@ -1,17 +1,19 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
-import { usePermissions } from "../../hooks";
 import { colors } from "../../theme";
 
 export default function TabsLayout() {
-  const { canViewClients } = usePermissions();
-
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textDisabled,
+        tabBarItemStyle: {
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "center",
+        },
         tabBarStyle: {
           borderTopColor: colors.border,
           backgroundColor: colors.surface,
@@ -44,6 +46,14 @@ export default function TabsLayout() {
         name="catalog/categories/form"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="catalog/products/index"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="catalog/products/form"
+        options={{ href: null }}
+      />
 
       <Tabs.Screen
         name="orders/index"
@@ -55,10 +65,18 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="logistics/index"
+        options={{
+          title: "Camiones",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="bus-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="clients/index"
         options={{
           title: "Clientes",
-          href: canViewClients ? undefined : null,
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" size={size} color={color} />
           ),
@@ -87,10 +105,6 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="clients/debtors"
-        options={{ href: null }}
-      />
-      <Tabs.Screen
-        name="logistics/index"
         options={{ href: null }}
       />
       <Tabs.Screen

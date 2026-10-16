@@ -17,6 +17,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { clientsService } from '../../../services/api/clientsService';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { IClientDetail } from '../../../types';
+import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
+import { parseApiError } from '../../../utils/apiErrors';
 
 export default function ClientDetailScreen() {
   const router = useRouter();
@@ -28,6 +30,11 @@ export default function ClientDetailScreen() {
   const [error, setError] = useState<Error | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const [paymentServerError, setPaymentServerError] = useState<string | null>(null);
+  const [paymentTouched, setPaymentTouched] = useState(false);
+  const [paymentAttempted, setPaymentAttempted] = useState(false);
+  const paymentInput = React.useRef<TextInput>(null);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'mixed'>('cash');
   const [processingPayment, setProcessingPayment] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
@@ -110,16 +117,21 @@ export default function ClientDetailScreen() {
   };
 
   const handleRegisterPayment = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      Alert.alert('Error', 'Ingresa un monto válido');
+    setPaymentAttempted(true);
+    const amount = Number(paymentAmount.trim().replace(',', '.'));
+    if (!paymentAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setPaymentError('Ingresá un monto válido mayor que cero.');
+      paymentInput.current?.focus();
       return;
     }
 
     try {
+      setPaymentError(null);
+      setPaymentServerError(null);
       setProcessingPayment(true);
       await clientsService.registerPayment(
         clientId!,
-        parseFloat(paymentAmount),
+        amount,
         paymentMethod
       );
       setShowPaymentModal(false);
@@ -127,7 +139,9 @@ export default function ClientDetailScreen() {
       Alert.alert('Éxito', 'Pago registrado correctamente');
       await fetchClientDetail();
     } catch (err) {
-      Alert.alert('Error', 'No se pudo registrar el pago');
+      const parsed = parseApiError(err, 'No se pudo registrar el pago. Revisá tu conexión e intentá de nuevo.');
+      setPaymentError(parsed.fields.amount ?? null);
+      setPaymentServerError(Object.keys(parsed.fields).length ? null : parsed.message);
     } finally {
       setProcessingPayment(false);
     }
@@ -351,14 +365,19 @@ export default function ClientDetailScreen() {
             <View style={styles.modalBody}>
               <Text style={styles.modalLabel}>Monto (en pesos)</Text>
               <TextInput
-                style={styles.modalInput}
+                ref={paymentInput}
+                style={[styles.modalInput, paymentError && styles.modalInputError, paymentTouched && !paymentError && paymentAmount.trim() && styles.modalInputValid]}
                 placeholder="0.00"
                 placeholderTextColor={colors.textSecondary}
                 keyboardType="decimal-pad"
                 value={paymentAmount}
-                onChangeText={setPaymentAmount}
+                onChangeText={value => { setPaymentAmount(value); if (paymentAttempted || paymentTouched) { const number = Number(value.trim().replace(',', '.')); setPaymentError(!value.trim() || !Number.isFinite(number) || number <= 0 ? 'Ingresá un monto válido mayor que cero.' : null); } setPaymentServerError(null); }}
+                onBlur={() => { setPaymentTouched(true); const number = Number(paymentAmount.trim().replace(',', '.')); setPaymentError(!paymentAmount.trim() || !Number.isFinite(number) || number <= 0 ? 'Ingresá un monto válido mayor que cero.' : null); }}
                 editable={!processingPayment}
+                maxLength={15}
               />
+              {!!paymentError && <Text style={styles.paymentErrorText}>{paymentError}</Text>}
+              {!!paymentServerError && <FormErrorBanner message={paymentServerError} onRetry={handleRegisterPayment} />}
 
               <Text style={styles.modalLabel}>Método de pago</Text>
               <View style={styles.methodContainer}>
@@ -370,6 +389,7 @@ export default function ClientDetailScreen() {
                       paymentMethod === method && styles.methodButtonActive,
                     ]}
                     onPress={() => setPaymentMethod(method)}
+                    disabled={processingPayment}
                   >
                     <Text
                       style={[
@@ -390,7 +410,7 @@ export default function ClientDetailScreen() {
               <TouchableOpacity
                 style={styles.confirmButton}
                 onPress={handleRegisterPayment}
-                disabled={processingPayment}
+                disabled={processingPayment || (paymentAttempted && !!paymentError)}
               >
                 {processingPayment ? (
                   <ActivityIndicator color={colors.textInverse} />
@@ -707,6 +727,9 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.lg,
   },
+  modalInputError: { borderColor: colors.error },
+  modalInputValid: { borderColor: colors.success },
+  paymentErrorText: { ...typography.caption, color: colors.error, marginTop: spacing.xs, marginBottom: spacing.sm },
   methodContainer: {
     flexDirection: 'row',
     gap: spacing.sm,

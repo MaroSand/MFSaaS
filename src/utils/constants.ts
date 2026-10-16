@@ -1,4 +1,6 @@
-export const BASE_URL = 'http://10.0.1.25:8080/';
+// El OpenAPI publica las rutas bajo /api (por ejemplo, /api/auth/login).
+// Axios combina este prefijo con las rutas de services/api.
+export const BASE_URL = 'https://superadditional-septariate-olevia.ngrok-free.dev/api';
 
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {

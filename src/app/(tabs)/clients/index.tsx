@@ -76,6 +76,7 @@ export default function ClientsListScreen() {
         <View style={styles.emptyContainer}>
           <Ionicons name="alert-circle" size={48} color={colors.error} />
           <Text style={styles.errorTitle}>Error al cargar clientes</Text>
+          {!!error.message && <Text style={styles.errorMessage}>{error.message}</Text>}
           <TouchableOpacity style={styles.retryButton} onPress={refetch}>
             <Text style={styles.retryButtonText}>Reintentar</Text>
           </TouchableOpacity>

@@ -8,6 +8,7 @@ import {
   Linking,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -41,7 +42,7 @@ export default function ProfileScreen() {
   const initial = user?.fullName?.charAt(0)?.toUpperCase() ?? '?';
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>{initial}</Text>
@@ -159,16 +160,16 @@ export default function ProfileScreen() {
           </View>
         </View>
       </Modal>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: spacing.lg,
     backgroundColor: colors.background,
   },
+  content: { padding: spacing.lg, paddingBottom: spacing.xxxl },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

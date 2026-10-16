@@ -4,7 +4,7 @@ export interface IUser {
   id: string;
   username: string;
   fullName: string;
-  role: 'owner' | 'seller' | 'delivery' | 'manager';
+  role: 'owner' | 'seller' | 'delivery' | 'manager' | 'unknown';
   permissions: string[];
   tenantId: string;
 }
@@ -28,6 +28,7 @@ export interface IProduct {
   id: string;
   name: string;
   description: string;
+  sku?: string;
   category: ICategory;
   unit: string; // 'kg' | 'u' | 'lt'
   price: number;
@@ -51,6 +52,7 @@ export interface IAddress {
   street: string;
   city: string;
   label?: string; // ej: 'Casa', 'Depósito'
+  isDefault?: boolean;
 }
 
 // ─── Client ──────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { useCategories } from "../../../hooks";
-import { catalogService } from "../../../services/mock/catalogService";
+import { productsService } from "../../../services/api/productsService";
 import { useCartStore } from "../../../store/cartStore";
 import { colors, radius, spacing, typography } from "../../../theme";
 import { IProduct } from "../../../types/api.types";
@@ -31,10 +31,11 @@ export default function CatalogScreen() {
     refetch: refetchCategories,
   } = useCategories();
 
-  // Estados de datos y UI del listado de productos (mock: sin endpoint aún)
+  // Listado de productos conectado al backend.
   const [products, setProducts] = useState<IProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Buscador de productos (reactivo, con debounce)
   const [search, setSearch] = useState("");
@@ -54,9 +55,11 @@ export default function CatalogScreen() {
       setLoading(true);
       setError(null);
       try {
-        const response = await catalogService.getProducts(
+        const response = await productsService.getProducts(
           search,
           appliedCategoryIds,
+          categories,
+          true,
         );
         setProducts(response.items);
       } catch (err: any) {
@@ -72,7 +75,7 @@ export default function CatalogScreen() {
 
     return () => clearTimeout(delayDebounce);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, appliedCategoryIds.join(",")]);
+    }, [search, appliedCategoryIds.join(","), categories, reloadKey]);
 
   function toggleCategory(categoryId: string) {
     setAppliedCategoryIds((prev) =>
@@ -93,7 +96,7 @@ export default function CatalogScreen() {
         <Text style={styles.errorText}>⚠️ {error}</Text>
         <TouchableOpacity
           style={styles.retryButton}
-          onPress={() => setSearch("")}
+          onPress={() => setReloadKey(key => key + 1)}
         >
           <Text style={styles.retryButtonText}>Reintentar</Text>
         </TouchableOpacity>
@@ -106,13 +109,22 @@ export default function CatalogScreen() {
       {/* Header con acceso a gestión de categorías */}
       <View style={styles.catalogHeader}>
         <Text style={styles.catalogHeaderTitle}>Catálogo</Text>
-        <TouchableOpacity
-          style={styles.manageCategoriesButton}
-          onPress={() => router.push("/(tabs)/catalog/categories" as any)}
-        >
-          <Ionicons name="pricetags-outline" size={18} color={colors.primary} />
-          <Text style={styles.manageCategoriesText}>Categorías</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.manageProductsButton}
+            onPress={() => router.push("/(tabs)/catalog/products" as any)}
+          >
+            <Ionicons name="cube-outline" size={17} color={colors.primary} />
+            <Text style={styles.manageCategoriesText}>Productos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.manageCategoriesButton}
+            onPress={() => router.push("/(tabs)/catalog/categories" as any)}
+          >
+            <Ionicons name="pricetags-outline" size={17} color={colors.primary} />
+            <Text style={styles.manageCategoriesText}>Categorías</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Buscador */}
@@ -208,8 +220,9 @@ export default function CatalogScreen() {
             </View>
           }
           renderItem={({ item }) => {
-            const isLowStock = item.stock > 0 && item.stock <= item.minStock;
-            const isOutOfStock = item.stock <= 0;
+            const hasStockData = item.stock > 0 || item.minStock > 0;
+            const isLowStock = hasStockData && item.stock > 0 && item.stock <= item.minStock;
+            const isOutOfStock = hasStockData && item.stock <= 0;
             return (
               <TouchableOpacity
                 style={styles.productCard}
@@ -225,7 +238,7 @@ export default function CatalogScreen() {
                   <Text style={styles.productDescription} numberOfLines={2}>
                     {item.description}
                   </Text>
-                  <View style={styles.stockBadgeContainer}>
+                  {hasStockData && <View style={styles.stockBadgeContainer}>
                     <Text
                       style={[
                         styles.stockText,
@@ -240,7 +253,7 @@ export default function CatalogScreen() {
                         ? "Sin stock"
                         : `Stock: ${item.stock} ${item.unit}`}
                     </Text>
-                  </View>
+                  </View>}
                 </View>
                 <View style={styles.productPriceContainer}>
                   <Text style={styles.productPrice}>
@@ -291,6 +304,20 @@ const styles = StyleSheet.create({
   catalogHeaderTitle: {
     ...typography.heading,
     color: colors.textPrimary,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  manageProductsButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
   },
   manageCategoriesButton: {
     flexDirection: "row",
