@@ -1,10 +1,5 @@
 /**
- * inventoryService.ts
- * TODO: Implementar cuando el backend esté disponible.
- * Las firmas de funciones deben coincidir con mockHandlers.ts
+ * The current API exposes inventory per truck only. Those operations live in
+ * logisticsService; there are no global warehouse inventory endpoints yet.
  */
-import { client } from './client';
-
-export const inventoryService = {
-  // Completar en Sprint 4 - Integración
-};
+export const inventoryService = {};

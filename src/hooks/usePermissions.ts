@@ -11,7 +11,10 @@ export function usePermissions() {
     canViewOrders:      hasPermission(PERMISSIONS.VIEW_ORDERS),
     canViewStock:       hasPermission(PERMISSIONS.VIEW_STOCK),
     canManageStock:     hasPermission(PERMISSIONS.MANAGE_STOCK),
-    canViewClients:     hasPermission(PERMISSIONS.VIEW_CLIENTS),
+    // El endpoint de login actual no devuelve permisos. Para permitir probar
+    // el GET de clientes, mostramos la pestaña cuando el rol es desconocido;
+    // Spring Security sigue siendo quien autoriza o rechaza los datos.
+    canViewClients:     hasPermission(PERMISSIONS.VIEW_CLIENTS) || user?.role === 'unknown',
     canManageClients:   hasPermission(PERMISSIONS.MANAGE_CLIENTS),
     canViewLogistics:   hasPermission(PERMISSIONS.VIEW_LOGISTICS),
     canManageLogistics: hasPermission(PERMISSIONS.MANAGE_LOGISTICS),

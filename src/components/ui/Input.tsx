@@ -7,6 +7,7 @@ interface InputProps extends TextInputProps {
   label?: string;
   hint?: string;
   error?: string;
+  valid?: boolean;
   variant?: InputVariant;
   leftIcon?: React.ReactNode;
   rightIcon?: React.ReactNode;
@@ -14,8 +15,8 @@ interface InputProps extends TextInputProps {
 }
 
 export function Input({
-  label, hint, error, variant = 'default',
-  leftIcon, rightIcon, onRightIconPress, style, ...rest
+  label, hint, error, valid = false, variant = 'default',
+  leftIcon, rightIcon, onRightIconPress, onFocus, onBlur, style, ...rest
 }: InputProps) {
   const [focused, setFocused] = useState(false);
   const hasError = variant === 'error' || !!error;
@@ -26,14 +27,15 @@ export function Input({
       <View style={[
         styles.container,
         focused && styles.focused,
+        valid && !hasError && styles.validBorder,
         hasError && styles.errorBorder,
       ]}>
         {leftIcon && <View style={styles.iconLeft}>{leftIcon}</View>}
         <TextInput
           style={[styles.input, leftIcon ? styles.inputWithLeft : null, rightIcon ? styles.inputWithRight : null, style]}
           placeholderTextColor={colors.textDisabled}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
+          onFocus={event => { setFocused(true); onFocus?.(event); }}
+          onBlur={event => { setFocused(false); onBlur?.(event); }}
           {...rest}
         />
         {rightIcon && (
@@ -54,6 +56,7 @@ const styles = StyleSheet.create({
   label:          { ...typography.label, color: colors.textSecondary, marginBottom: spacing.xs },
   container:      { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1.5, borderColor: colors.border },
   focused:        { borderColor: colors.borderFocus },
+  validBorder:    { borderColor: colors.success },
   errorBorder:    { borderColor: colors.error },
   input:          { flex: 1, ...typography.body, color: colors.textPrimary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
   inputWithLeft:  { paddingLeft: spacing.sm },

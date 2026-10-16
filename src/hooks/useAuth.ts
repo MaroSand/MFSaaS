@@ -1,44 +1,103 @@
 import { useState } from 'react';
-import { mockLogin, mockUpdateProfile } from '../services/mock/mockHandlers';
+import axios from 'axios';
+import { authService } from '../services/api/authService';
+import { mockUpdateProfile } from '../services/mock/mockHandlers';
+import { removeRememberedSession, saveRememberedSession } from '../services/authSessionStorage';
 import { useAuthStore } from '../store';
+import { parseApiError } from '../utils/apiErrors';
 
 export function useAuth() {
   const { setAuth, clearAuth, user, isAuthenticated, hasPermission, updateUser } = useAuthStore();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const clearError = () => {
+    setError(null);
+    setFieldErrors({});
+  };
 
-  async function login(username: string, password: string) {
+  async function login(username: string, password: string, rememberMe = false) {
     setIsLoading(true);
     setError(null);
+    setFieldErrors({});
     try {
-      const { user, accessToken, refreshToken } = await mockLogin(username, password);
-      setAuth(user, accessToken, refreshToken);
+      const response = await authService.login(username, password);
+      const accountName = response.username || username;
+      // El endpoint de login documentado solo devuelve el token y el nombre.
+      // Los permisos reales siguen siendo aplicados por Spring Security.
+      const user = {
+        id: accountName,
+        username: accountName,
+        fullName: accountName,
+        role: 'unknown' as const,
+        permissions: [],
+        tenantId: '',
+      };
+      setAuth(user, response.token, response.tokenType || 'Bearer');
+      try {
+        if (rememberMe) {
+          await saveRememberedSession({
+            username: accountName,
+            token: response.token,
+            tokenType: response.tokenType || 'Bearer',
+          });
+        } else {
+          await removeRememberedSession();
+        }
+      } catch (storageError) {
+        // A storage issue must not turn a successful server login into a failed login.
+        console.warn('No se pudo actualizar la sesión recordada', storageError);
+      }
     } catch (e: any) {
-      setError(e.message ?? 'Error al iniciar sesión');
+      const parsed = parseApiError(e, '');
+      setFieldErrors(parsed.fields);
+      const status = e?.response?.status;
+      if (axios.isAxiosError(e) && !e.response) {
+        setError('No se pudo conectar con el servidor');
+      } else if (status === 401) {
+        const backendMessage = e?.response?.data?.message;
+        if (typeof backendMessage === 'string' && /authentication is required or invalid/i.test(backendMessage)) {
+          setError('El backend rechazó la solicitud de login. Revisen que el filtro JWT deje pasar esta ruta y que el matcher coincida con la ruta real (/auth/login o /api/auth/login).');
+        } else {
+          setError(typeof backendMessage === 'string' ? backendMessage : 'Email o contraseña incorrectos');
+        }
+      } else if (status === 403) {
+        setError('El usuario no tiene permiso para iniciar sesión');
+      } else {
+        setError(e?.response?.data?.message || e.message || 'Error al iniciar sesión');
+      }
     } finally {
       setIsLoading(false);
     }
   }
 
-  function logout() {
+  async function logout() {
     clearAuth();
+    try {
+      await removeRememberedSession();
+    } catch (storageError) {
+      console.warn('No se pudo borrar la sesión guardada', storageError);
+    }
   }
 
   async function editProfile(changes: { fullName?: string; username?: string }) {
     if (!user) return;
     setIsLoading(true);
     setError(null);
+    setFieldErrors({});
     try {
       const updated = await mockUpdateProfile(user.id, changes);
       updateUser(updated);
       return updated;
     } catch (e: any) {
-      setError(e.message ?? 'Error al actualizar el perfil');
+      const parsed = parseApiError(e, 'Error al actualizar el perfil.');
+      setFieldErrors(parsed.fields);
+      if (!Object.keys(parsed.fields).length) setError(parsed.message);
       throw e;
     } finally {
       setIsLoading(false);
     }
   }
 
-  return { login, logout, editProfile, user, isAuthenticated, isLoading, error, hasPermission };
+  return { login, logout, editProfile, user, isAuthenticated, isLoading, error, fieldErrors, clearError, hasPermission };
 }

@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
     StyleSheet,
@@ -7,7 +7,8 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-import { MOCK_PRODUCTS } from "../../../services/mock/mockData";
+import { productsService } from "../../../services/api/productsService";
+import { useCategories } from "../../../hooks";
 import { useCartStore } from "../../../store/cartStore";
 import { IProduct } from "../../../types";
 
@@ -15,19 +16,29 @@ export default function ProductDetailScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const router = useRouter();
   const addItem = useCartStore((state) => state.addItem);
+  const { categories } = useCategories();
 
   const [product, setProduct] = useState<IProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [qty, setQty] = useState(1);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Simulamos la búsqueda del producto por ID en tus datos mock
-    const foundProduct = MOCK_PRODUCTS.find((p) => p.id === productId);
-    if (foundProduct) {
-      setProduct(foundProduct);
+  const loadProduct = useCallback(async () => {
+    if (!productId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await productsService.getProductById(productId, categories);
+      setProduct(result);
+    } catch (err: any) {
+      setError(err?.response?.data?.message || err.message || "No se pudo cargar el producto.");
+      setProduct(null);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [productId]);
+  }, [productId, categories]);
+
+  useEffect(() => { loadProduct(); }, [loadProduct]);
 
   if (loading) {
     return (
@@ -40,7 +51,12 @@ export default function ProductDetailScreen() {
   if (!product) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Producto no encontrado</Text>
+        <Text style={styles.errorText}>{error || "Producto no encontrado"}</Text>
+        {error && (
+          <TouchableOpacity style={styles.addButton} onPress={loadProduct}>
+            <Text style={styles.addButtonText}>Reintentar</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }
@@ -55,6 +71,7 @@ export default function ProductDetailScreen() {
       <View style={styles.card}>
         <Text style={styles.name}>{product.name}</Text>
         <Text style={styles.category}>{product.category.name}</Text>
+          {!!product.sku && <Text style={styles.description}>Código: {product.sku}</Text>}
         <Text style={styles.description}>{product.description}</Text>
 
         <Text style={styles.price}>

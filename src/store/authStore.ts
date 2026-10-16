@@ -4,10 +4,10 @@ import { IUser } from '../types';
 interface AuthState {
   user: IUser | null;
   accessToken: string | null;
-  refreshToken: string | null;
+  tokenType: string | null;
   isAuthenticated: boolean;
 
-  setAuth: (user: IUser, accessToken: string, refreshToken: string) => void;
+  setAuth: (user: IUser, accessToken: string, tokenType?: string | null) => void;
   clearAuth: () => void;
   hasPermission: (permission: string) => boolean;
   updateUser: (changes: Partial<IUser>) => void;
@@ -16,14 +16,14 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   accessToken: null,
-  refreshToken: null,
+  tokenType: null,
   isAuthenticated: false,
 
-  setAuth: (user, accessToken, refreshToken) =>
-    set({ user, accessToken, refreshToken, isAuthenticated: true }),
+  setAuth: (user, accessToken, tokenType = 'Bearer') =>
+    set({ user, accessToken, tokenType: tokenType || 'Bearer', isAuthenticated: true }),
 
   clearAuth: () =>
-    set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false }),
+    set({ user: null, accessToken: null, tokenType: null, isAuthenticated: false }),
 
   updateUser: (changes) =>
     set((state) => (state.user ? { user: { ...state.user, ...changes } } : state)),

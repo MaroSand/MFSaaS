@@ -5,12 +5,12 @@
  * /customer/update/{id}, /customer/delete/{id}, /customer/desactivate/{id},
  * /customer/activate/{id}
  *
- * NOTA: el backend aún no expone addresses, totalDebt, detalle con historial,
- * deudores ni pagos. Esos métodos quedan marcados con TODO hasta que existan
- * los endpoints correspondientes.
+ * El backend expone direcciones en /customers/{customerId}/addresses.
+ * Deuda, historial y pagos se completarán contra los endpoints de ledger/orders.
  */
 import { IClient, IClientDetail, IDebtor, IOrder, IPayment } from '../../types';
 import { client } from './client';
+import { IAddress } from '../../types';
 
 // Shape real que devuelve el backend (CustomerDto)
 interface CustomerDto {
@@ -21,6 +21,56 @@ interface CustomerDto {
   phone: string;
   email: string;
   active: boolean;
+  addresses?: AddressDto[];
+}
+
+interface AddressDto {
+  id?: number | string;
+  addressId?: number | string;
+  label?: string | null;
+  streetAddress?: string | null;
+  street?: string | null;
+  city?: string | null;
+  isDefault?: boolean;
+}
+
+export interface AddressWriteRequest {
+  label?: string;
+  streetAddress: string;
+  city?: string;
+  isDefault?: boolean;
+}
+
+function toIAddress(dto: AddressDto): IAddress {
+  return {
+    id: String(dto.id ?? dto.addressId ?? ''),
+    label: dto.label ?? undefined,
+    street: dto.streetAddress ?? dto.street ?? '',
+    city: dto.city ?? '',
+    isDefault: dto.isDefault ?? false,
+  };
+}
+
+function toAddressRequest(address: IAddress): AddressWriteRequest {
+  return {
+    label: address.label || 'Dirección principal',
+    streetAddress: address.street.trim(),
+    city: address.city.trim(),
+    isDefault: address.isDefault ?? true,
+  };
+}
+
+function unwrapAddresses(payload: unknown): AddressDto[] {
+  if (Array.isArray(payload)) return payload as AddressDto[];
+  if (!payload || typeof payload !== 'object') return [];
+  const record = payload as Record<string, unknown>;
+  for (const key of ['items', 'content', 'data', 'addresses']) {
+    if (Array.isArray(record[key])) return record[key] as AddressDto[];
+  }
+  if ('id' in record || 'addressId' in record || 'streetAddress' in record || 'street' in record) {
+    return [record as AddressDto];
+  }
+  return [];
 }
 
 // Mapea CustomerDto (backend) -> IClient (frontend)
@@ -32,7 +82,7 @@ function toIClient(dto: CustomerDto): IClient {
     phone: dto.phone,
     email: dto.email,
     active: dto.active,
-    addresses: [],   // TODO: backend no expone direcciones todavía
+    addresses: (dto.addresses ?? []).map(toIAddress),
     totalDebt: 0,    // TODO: backend no expone deuda todavía
   };
 }
@@ -49,6 +99,43 @@ function toCustomerDto(data: Partial<IClient>): Partial<CustomerDto> {
 }
 
 export const clientsService = {
+  /** GET /customers/{customerId}/addresses/{addressId} */
+  async getClientAddress(customerId: string, addressId: string): Promise<IAddress> {
+    const response = await client.get<AddressDto>(
+      `/customers/${customerId}/addresses/${addressId}`,
+    );
+    return toIAddress(response.data);
+  },
+
+  /** GET /customers/{customerId}/addresses */
+  async getClientAddresses(customerId: string): Promise<IAddress[]> {
+    const response = await client.get<unknown>(`/customers/${customerId}/addresses`);
+    return unwrapAddresses(response.data).map(toIAddress);
+  },
+
+  /** POST /customers/{customerId}/addresses */
+  async createClientAddress(customerId: string, address: IAddress): Promise<IAddress> {
+    const response = await client.post<AddressDto>(
+      `/customers/${customerId}/addresses`,
+      toAddressRequest(address),
+    );
+    return toIAddress(response.data ?? { id: '', label: address.label, streetAddress: address.street, city: address.city, isDefault: address.isDefault });
+  },
+
+  /** PUT /customers/{customerId}/addresses/{addressId} */
+  async updateClientAddress(customerId: string, address: IAddress): Promise<IAddress> {
+    const response = await client.put<AddressDto>(
+      `/customers/${customerId}/addresses/${address.id}`,
+      toAddressRequest(address),
+    );
+    return toIAddress(response.data ?? { id: address.id, label: address.label, streetAddress: address.street, city: address.city, isDefault: address.isDefault });
+  },
+
+  /** DELETE /customers/{customerId}/addresses/{addressId} */
+  async deleteClientAddress(customerId: string, addressId: string): Promise<void> {
+    await client.delete(`/customers/${customerId}/addresses/${addressId}`);
+  },
+
   /**
    * GET /customer/get
    * El backend no soporta search ni paginación todavía: se filtra/pagina en el cliente.
@@ -73,7 +160,9 @@ export const clientsService = {
   /** GET /customer/get/{id} */
   async getClientById(id: string): Promise<IClient> {
     const response = await client.get<CustomerDto>(`/customer/get/${id}`);
-    return toIClient(response.data);
+    const customer = toIClient(response.data);
+    const addresses = response.data.addresses?.map(toIAddress) ?? await this.getClientAddresses(id);
+    return { ...customer, addresses };
   },
 
   /**
@@ -99,14 +188,43 @@ export const clientsService = {
 
   /** POST /customer/save */
   async createClient(dto: Omit<IClient, 'id'>): Promise<IClient> {
-    const response = await client.post<CustomerDto>('/customer/save', toCustomerDto(dto));
-    return toIClient(response.data);
+    const body = {
+      ...toCustomerDto(dto),
+      addresses: dto.addresses?.map(toAddressRequest),
+    };
+    const response = await client.post<CustomerDto>('/customer/save', body);
+    const created = toIClient(response.data);
+    if (response.data.id != null && dto.addresses?.length) {
+      created.addresses = await this.getClientAddresses(String(response.data.id));
+    }
+    return created;
   },
 
   /** PUT /customer/update/{id} */
   async updateClient(id: string, dto: Partial<IClient>): Promise<IClient> {
     const response = await client.put<CustomerDto>(`/customer/update/${id}`, toCustomerDto(dto));
-    return toIClient(response.data);
+    if (dto.addresses) {
+      const existingAddresses = await this.getClientAddresses(id);
+      const submittedIds = new Set(dto.addresses.filter(address => /^\d+$/.test(address.id)).map(address => address.id));
+      for (const address of dto.addresses) {
+        const hasBackendId = /^\d+$/.test(address.id);
+        if (hasBackendId) await this.updateClientAddress(id, address);
+        else {
+          const alreadySaved = existingAddresses.some(existing =>
+            existing.street.trim().toLowerCase() === address.street.trim().toLowerCase() &&
+            existing.city.trim().toLowerCase() === address.city.trim().toLowerCase() &&
+            (existing.label ?? '') === (address.label ?? ''),
+          );
+          if (!alreadySaved) await this.createClientAddress(id, address);
+        }
+      }
+      for (const oldAddress of existingAddresses) {
+        if (!submittedIds.has(oldAddress.id)) await this.deleteClientAddress(id, oldAddress.id);
+      }
+    }
+    const customer = toIClient(response.data);
+    customer.addresses = await this.getClientAddresses(id);
+    return customer;
   },
 
   /** DELETE /customer/delete/{id} — baja definitiva */

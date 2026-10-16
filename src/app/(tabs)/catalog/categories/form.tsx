@@ -4,7 +4,6 @@ import React, { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Switch,
@@ -15,9 +14,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FormErrorBanner } from '../../../../components/ui/FormErrorBanner';
 import { catalogService } from '../../../../services/api/catalogService';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { ICategory } from '../../../../types';
+import { parseApiError } from '../../../../utils/apiErrors';
 
 type CategoryFormData = {
   name: string;
@@ -37,12 +38,14 @@ export default function CategoryFormScreen() {
   // Ahora el error se muestra ACÁ, sin navegar, con botón para reintentar.
   const [loadError, setLoadError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [categories, setCategories] = useState<ICategory[]>([]);
   const [loadingCategories, setLoadingCategories] = useState(true);
+  const [categoriesError, setCategoriesError] = useState<string | null>(null);
 
   // Estado activo/inactivo de la categoría (solo relevante en edición)
   const [isActive, setIsActive] = useState(true);
-  const [initialActive, setInitialActive] = useState(true);
   const [togglingActive, setTogglingActive] = useState(false);
 
   const {
@@ -50,8 +53,14 @@ export default function CategoryFormScreen() {
     handleSubmit,
     reset,
     watch,
-    formState: { errors },
+    setError,
+    clearErrors,
+    setFocus,
+    formState: { errors, isValid, isSubmitted, touchedFields },
   } = useForm<CategoryFormData>({
+    mode: 'onBlur',
+    reValidateMode: 'onChange',
+    shouldFocusError: true,
     defaultValues: { name: '', parentCategoryId: '' },
   });
 
@@ -67,10 +76,11 @@ export default function CategoryFormScreen() {
   const loadCategories = async () => {
     try {
       setLoadingCategories(true);
+      setCategoriesError(null);
       const result = await catalogService.getCategories();
       setCategories(result);
     } catch (err) {
-      // no bloquea el form si falla: solo no habrá selector de padre
+      setCategoriesError(parseApiError(err, 'No se pudieron cargar las categorías padre.').message);
     } finally {
       setLoadingCategories(false);
     }
@@ -87,7 +97,6 @@ export default function CategoryFormScreen() {
       });
       const active = category.active !== false;
       setIsActive(active);
-      setInitialActive(active);
     } catch (err) {
       setLoadError('No se pudo cargar la categoría. Revisá tu conexión e intentá de nuevo.');
     } finally {
@@ -99,6 +108,7 @@ export default function CategoryFormScreen() {
     if (!isEditMode || !categoryId) return;
     const previous = isActive;
     setIsActive(value); // feedback optimista
+    setStatusError(null);
     setTogglingActive(true);
     try {
       if (value) {
@@ -106,10 +116,9 @@ export default function CategoryFormScreen() {
       } else {
         await catalogService.deactivateCategory(categoryId);
       }
-      setInitialActive(value);
     } catch (err) {
       setIsActive(previous); // revierte si falló
-      Alert.alert('Error', `No se pudo ${value ? 'activar' : 'desactivar'} la categoría`);
+      setStatusError(parseApiError(err, `No se pudo ${value ? 'activar' : 'desactivar'} la categoría.`).message);
     } finally {
       setTogglingActive(false);
     }
@@ -118,6 +127,8 @@ export default function CategoryFormScreen() {
   const onSubmit = async (data: CategoryFormData) => {
     try {
       setSubmitting(true);
+      setServerError(null);
+      clearErrors();
 
       const payload: Partial<ICategory> = {
         name: data.name.trim(),
@@ -126,21 +137,21 @@ export default function CategoryFormScreen() {
 
       if (isEditMode && categoryId) {
         await catalogService.updateCategory(categoryId, payload);
-        Alert.alert('Éxito', 'Categoría actualizada correctamente');
       } else {
         await catalogService.createCategory(payload);
-        Alert.alert('Éxito', 'Categoría creada correctamente');
       }
 
       router.back();
     } catch (err) {
-      Alert.alert('Error', 'No se pudo guardar la categoría');
+      const parsed = parseApiError(err, 'No se pudo guardar la categoría. Revisá los datos e intentá de nuevo.');
+      if (parsed.fields.name) setError('name', { type: 'server', message: parsed.fields.name });
+      setServerError(parsed.fields.name ? null : parsed.message);
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Evita elegirse a sí misma como padre
+  // Evita elegirse a sí misma como pri
   const parentOptions = categories.filter(c => c.id !== categoryId);
 
   if (loading) {
@@ -218,6 +229,7 @@ export default function CategoryFormScreen() {
                 <Switch
                   value={isActive}
                   onValueChange={handleToggleActive}
+                  disabled={submitting || togglingActive}
                   trackColor={{ false: colors.border, true: colors.primaryLight }}
                   thumbColor={isActive ? colors.primary : colors.textDisabled}
                   style={{ marginLeft: spacing.md }}
@@ -225,6 +237,7 @@ export default function CategoryFormScreen() {
               )}
             </View>
           )}
+          {!!statusError && <FormErrorBanner message={statusError} onRetry={() => handleToggleActive(!isActive)} />}
 
           {/* Name */}
           <View style={styles.fieldContainer}>
@@ -232,15 +245,18 @@ export default function CategoryFormScreen() {
             <Controller
               control={control}
               name="name"
-              rules={{ required: 'El nombre es obligatorio' }}
-              render={({ field: { value, onChange } }) => (
+              rules={{ required: 'El nombre es obligatorio.', validate: value => !!value.trim() || 'El nombre no puede estar vacío.', minLength: { value: 2, message: 'Usá al menos 2 caracteres.' }, maxLength: { value: 100, message: 'No puede superar 100 caracteres.' } }}
+              render={({ field: { value, onChange, onBlur, ref } }) => (
                 <TextInput
-                  style={[styles.input, errors.name && styles.inputError]}
+                  ref={ref}
+                  style={[styles.input, errors.name ? styles.inputError : touchedFields.name && styles.inputValid]}
                   placeholder="Ej: Carnes rojas"
                   placeholderTextColor={colors.textSecondary}
                   value={value}
-                  onChangeText={onChange}
+                  onChangeText={value => { onChange(value); setServerError(null); }}
+                  onBlur={onBlur}
                   editable={!submitting}
+                  maxLength={100}
                 />
               )}
             />
@@ -249,9 +265,11 @@ export default function CategoryFormScreen() {
 
           {/* Parent category selector */}
           <View style={styles.fieldContainer}>
-            <Text style={styles.label}>Categoría padre (opcional)</Text>
+            <Text style={styles.label}>Categoría Principal (opcional)</Text>
             {loadingCategories ? (
               <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.sm }} />
+            ) : categoriesError ? (
+              <FormErrorBanner message={categoriesError} onRetry={loadCategories} />
             ) : (
               <Controller
                 control={control}
@@ -269,7 +287,7 @@ export default function CategoryFormScreen() {
                           selectedParentId === '' && styles.chipTextActive,
                         ]}
                       >
-                        Sin padre
+                        Sin Categoría principal
                       </Text>
                     </TouchableOpacity>
                     {parentOptions.map(cat => (
@@ -301,6 +319,7 @@ export default function CategoryFormScreen() {
             </Text>
           </View>
 
+          {!!serverError && <FormErrorBanner message={serverError} onRetry={() => handleSubmit(onSubmit)()} />}
           <Text style={styles.requiredNote}>* campos obligatorios</Text>
         </View>
       </ScrollView>
@@ -316,8 +335,11 @@ export default function CategoryFormScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.submitButton}
-          onPress={handleSubmit(onSubmit)}
-          disabled={submitting}
+          onPress={handleSubmit(onSubmit, invalid => {
+            const first = Object.keys(invalid)[0] as keyof CategoryFormData | undefined;
+            if (first) setTimeout(() => setFocus(first), 0);
+          })}
+          disabled={submitting || (isSubmitted && !isValid)}
         >
           {submitting ? (
             <ActivityIndicator color={colors.textInverse} />
@@ -428,6 +450,7 @@ const styles = StyleSheet.create({
   inputError: {
     borderColor: colors.error,
   },
+  inputValid: { borderColor: colors.success },
   errorText: {
     ...typography.caption,
     color: colors.error,
