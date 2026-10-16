@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,6 +26,7 @@ const today = () => {
 };
 
 export default function LogisticsScreen() {
+  const router = useRouter();
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
   const [stock, setStock] = useState<TruckStockItem[]>([]);
@@ -204,6 +206,12 @@ export default function LogisticsScreen() {
         <View style={styles.headerIcon}><Ionicons name="bus-outline" size={24} color={colors.primary} /></View>
       </View>
 
+      <TouchableOpacity style={styles.assignOrdersButton} onPress={() => router.push('/(tabs)/logistics/orders')}>
+        <View style={styles.assignOrdersIcon}><Ionicons name="clipboard-outline" size={19} color={colors.primary} /></View>
+        <View style={styles.assignOrdersCopy}><Text style={styles.assignOrdersTitle}>Asignar pedidos a camiones</Text><Text style={styles.assignOrdersHint}>Organizá qué pedidos lleva cada unidad</Text></View>
+        <Ionicons name="chevron-forward" size={19} color={colors.primary} />
+      </TouchableOpacity>
+
       {!!error && <FormErrorBanner message={error} onRetry={() => selectedTruck ? loadStock(selectedTruck, stockDate) : loadTrucks()} />}
 
       <View style={styles.sectionHeader}>
@@ -290,6 +298,11 @@ const styles = StyleSheet.create({
   title: { ...typography.heading, color: colors.textPrimary, marginTop: 3 },
   subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
   headerIcon: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  assignOrdersButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, borderRadius: radius.md, marginBottom: spacing.md },
+  assignOrdersIcon: { width: 38, height: 38, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight },
+  assignOrdersCopy: { flex: 1 },
+  assignOrdersTitle: { ...typography.label, color: colors.textPrimary, fontWeight: '700' },
+  assignOrdersHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md, marginTop: spacing.sm },
   sectionTitle: { ...typography.subheading, color: colors.textPrimary },
   sectionHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },

@@ -67,9 +67,7 @@ export default function DebtorsScreen() {
           <Text style={styles.debtorDebt}>
             ${item.totalDebt.toLocaleString('es-AR')}
           </Text>
-          <Text style={styles.debtorOrderCount}>
-            {item.overdueOrders.length} pedido{item.overdueOrders.length !== 1 ? 's' : ''}
-          </Text>
+          <Text style={styles.debtorOrderCount}>Saldo pendiente</Text>
         </View>
       </View>
     </TouchableOpacity>
@@ -139,7 +137,6 @@ export default function DebtorsScreen() {
           data={debtors}
           renderItem={renderDebtorItem}
           keyExtractor={(item) => item.client.id}
-          estimatedItemSize={100}
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
