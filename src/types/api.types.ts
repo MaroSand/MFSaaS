@@ -72,6 +72,7 @@ export interface IClientSummary {
   id: string;
   businessName: string;
   taxId: string;
+  phone?: string;
 }
 
 export interface IClientDetail extends IClient {
@@ -89,7 +90,7 @@ export interface IDebtor {
 export interface IPayment {
   clientId: string;
   amount: number;
-  method: 'cash' | 'transfer' | 'mixed';
+  method?: 'cash' | 'transfer' | 'mixed';
   date: string;
 }
 

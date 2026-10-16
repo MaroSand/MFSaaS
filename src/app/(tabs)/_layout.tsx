@@ -107,6 +107,9 @@ export default function TabsLayout() {
         name="clients/debtors"
         options={{ href: null }}
       />
+      <Tabs.Screen name="clients/ledger" options={{ href: null }} />
+      <Tabs.Screen name="users/index" options={{ href: null }} />
+      <Tabs.Screen name="logistics/orders" options={{ href: null }} />
       <Tabs.Screen
         name="reports/index"
         options={{ href: null }}

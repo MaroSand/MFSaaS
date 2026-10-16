@@ -39,6 +39,10 @@ export default function ProfileScreen() {
     router.push('/(tabs)/profile/about');
   }
 
+  function handleUsers() {
+    router.push('/(tabs)/users');
+  }
+
   const initial = user?.fullName?.charAt(0)?.toUpperCase() ?? '?';
 
   return (
@@ -111,6 +115,17 @@ export default function ProfileScreen() {
             size={18}
             color={colors.textDisabled}
           />
+        </Pressable>
+      </View>
+
+      <Text style={styles.sectionLabel}>Administración</Text>
+      <View style={styles.section}>
+        <Pressable style={styles.row} onPress={handleUsers}>
+          <View style={styles.rowLeft}>
+            <Ionicons name="people-circle-outline" size={20} color={colors.textPrimary} />
+            <Text style={styles.rowText}>Gestionar usuarios</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textDisabled} />
         </Pressable>
       </View>
 

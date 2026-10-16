@@ -35,7 +35,6 @@ export default function ClientDetailScreen() {
   const [paymentTouched, setPaymentTouched] = useState(false);
   const [paymentAttempted, setPaymentAttempted] = useState(false);
   const paymentInput = React.useRef<TextInput>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'mixed'>('cash');
   const [processingPayment, setProcessingPayment] = useState(false);
   const [deactivating, setDeactivating] = useState(false);
   const [activating, setActivating] = useState(false);
@@ -63,6 +62,10 @@ export default function ClientDetailScreen() {
       pathname: '/(tabs)/clients/form',
       params: { clientId },
     });
+  };
+
+  const handleOpenLedger = () => {
+    router.push({ pathname: '/(tabs)/clients/ledger', params: { clientId } });
   };
 
   const handleDeactivateClient = () => {
@@ -131,8 +134,7 @@ export default function ClientDetailScreen() {
       setProcessingPayment(true);
       await clientsService.registerPayment(
         clientId!,
-        amount,
-        paymentMethod
+        amount
       );
       setShowPaymentModal(false);
       setPaymentAmount('');
@@ -227,6 +229,12 @@ export default function ClientDetailScreen() {
             <Text style={styles.debtStatus}>Pendiente de pago</Text>
           )}
         </View>
+
+        <TouchableOpacity style={styles.ledgerButton} onPress={handleOpenLedger}>
+          <Ionicons name="receipt-outline" size={19} color={colors.primary} />
+          <Text style={styles.ledgerButtonText}>Ver cuenta corriente y movimientos</Text>
+          <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+        </TouchableOpacity>
 
         {/* Addresses */}
         {client.addresses.length > 0 && (
@@ -379,34 +387,6 @@ export default function ClientDetailScreen() {
               {!!paymentError && <Text style={styles.paymentErrorText}>{paymentError}</Text>}
               {!!paymentServerError && <FormErrorBanner message={paymentServerError} onRetry={handleRegisterPayment} />}
 
-              <Text style={styles.modalLabel}>Método de pago</Text>
-              <View style={styles.methodContainer}>
-                {(['cash', 'transfer', 'mixed'] as const).map((method) => (
-                  <TouchableOpacity
-                    key={method}
-                    style={[
-                      styles.methodButton,
-                      paymentMethod === method && styles.methodButtonActive,
-                    ]}
-                    onPress={() => setPaymentMethod(method)}
-                    disabled={processingPayment}
-                  >
-                    <Text
-                      style={[
-                        styles.methodText,
-                        paymentMethod === method && styles.methodTextActive,
-                      ]}
-                    >
-                      {method === 'cash'
-                        ? 'Efectivo'
-                        : method === 'transfer'
-                        ? 'Transferencia'
-                        : 'Mixto'}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
               <TouchableOpacity
                 style={styles.confirmButton}
                 onPress={handleRegisterPayment}
@@ -552,6 +532,12 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: colors.error,
   },
+  ledgerButton: {
+    flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg,
+  },
+  ledgerButtonText: { ...typography.label, color: colors.primary, flex: 1 },
   debtCardHighlight: {
     backgroundColor: colors.errorLight,
     borderLeftColor: colors.error,

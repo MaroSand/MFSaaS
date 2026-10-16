@@ -11,6 +11,7 @@
 import { IClient, IClientDetail, IDebtor, IOrder, IPayment } from '../../types';
 import { client } from './client';
 import { IAddress } from '../../types';
+import { ledgerService } from './ledgerService';
 
 // Shape real que devuelve el backend (CustomerDto)
 interface CustomerDto {
@@ -171,7 +172,8 @@ export const clientsService = {
    */
   async getClientDetail(id: string): Promise<IClientDetail> {
     const base = await this.getClientById(id);
-    return { ...base, orderHistory: [] };
+    const ledger = await ledgerService.getCustomerLedger(id).catch(() => null);
+    return { ...base, totalDebt: ledger?.balance ?? base.totalDebt, orderHistory: [] };
   },
 
   /** TODO: requiere endpoint tipo GET /customer/{id}/history en el backend */
@@ -180,10 +182,20 @@ export const clientsService = {
     return [];
   },
 
-  /** TODO: requiere endpoint tipo GET /customer/debtors en el backend */
   async getDebtors(): Promise<{ items: IDebtor[] }> {
-    console.warn('getDebtors: endpoint no implementado en el backend aún');
-    return { items: [] };
+    const response = await client.get<CustomerDto[]>('/customer/get');
+    const customers = response.data.map(toIClient);
+    const items: Array<IDebtor | null> = await Promise.all(customers.map(async (customer): Promise<IDebtor | null> => {
+      const ledger = await ledgerService.getCustomerLedger(customer.id).catch(() => null);
+      const balance = ledger?.balance;
+      if (balance == null || balance <= 0) return null;
+      return {
+        client: { id: customer.id, businessName: customer.businessName, taxId: customer.taxId, phone: customer.phone },
+        totalDebt: balance,
+        overdueOrders: [], // No hay endpoint documentado para detallar los pedidos pendientes.
+      };
+    }));
+    return { items: items.filter((item): item is IDebtor => item !== null) };
   },
 
   /** POST /customer/save */
@@ -246,9 +258,9 @@ export const clientsService = {
     await client.patch(`/customer/activate/${id}`);
   },
 
-  /** TODO: requiere endpoint tipo POST /customer/{id}/payments en el backend */
-  async registerPayment(_clientId: string, _amount: number, _method: 'cash' | 'transfer' | 'mixed'): Promise<IPayment> {
-    console.warn('registerPayment: endpoint no implementado en el backend aún');
-    throw new Error('Endpoint de pagos no implementado en el backend todavía');
+  /** POST /customers/{customerId}/ledger/payments. La API solo recibe amount. */
+  async registerPayment(clientId: string, amount: number): Promise<IPayment> {
+    await ledgerService.registerPayment(clientId, amount);
+    return { clientId, amount, date: new Date().toISOString() };
   },
 };
