@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import axios from 'axios';
 import { authService } from '../services/api/authService';
-import { mockUpdateProfile } from '../services/mock/mockHandlers';
 import { removeRememberedSession, saveRememberedSession } from '../services/authSessionStorage';
+import { usersService } from '../services/api/usersService';
 import { useAuthStore } from '../store';
 import { parseApiError } from '../utils/apiErrors';
 
@@ -34,6 +34,17 @@ export function useAuth() {
         tenantId: '',
       };
       setAuth(user, response.token, response.tokenType || 'Bearer');
+      try {
+        const profile = await authService.getCurrentUser(accountName);
+        setAuth(profile, response.token, response.tokenType || 'Bearer');
+      } catch (profileError) {
+        if (axios.isAxiosError(profileError) && profileError.response?.status === 401) {
+          clearAuth();
+          throw new Error('El servidor emitió un token que no pudo validar al consultar el perfil. Revisá la autenticación del backend.');
+        }
+        // A successful login remains usable if the optional profile endpoint is temporarily unavailable.
+        console.warn('No se pudo cargar el perfil del backend', profileError);
+      }
       try {
         if (rememberMe) {
           await saveRememberedSession({
@@ -72,7 +83,14 @@ export function useAuth() {
   }
 
   async function logout() {
-    clearAuth();
+    try {
+      if (isAuthenticated) await authService.logout();
+    } catch (logoutError) {
+      // Always clear the local session, even if the server cannot be reached.
+      console.warn('No se pudo invalidar la sesión en el backend', logoutError);
+    } finally {
+      clearAuth();
+    }
     try {
       await removeRememberedSession();
     } catch (storageError) {
@@ -86,9 +104,22 @@ export function useAuth() {
     setError(null);
     setFieldErrors({});
     try {
-      const updated = await mockUpdateProfile(user.id, changes);
-      updateUser(updated);
-      return updated;
+      const fullName = changes.fullName?.trim() || user.fullName;
+      const email = changes.username?.trim() || user.username;
+      const roleId = Number(user.roleId);
+      const updated = await usersService.updateUser(user.id, {
+        fullName,
+        email,
+        ...(Number.isInteger(roleId) && roleId > 0 ? { roleId } : {}),
+      });
+      const userChanges = {
+        fullName: updated.fullName || fullName,
+        username: updated.email || email,
+        ...(updated.roleId ? { roleId: updated.roleId } : {}),
+        ...(updated.roleName ? { roleName: updated.roleName } : {}),
+      };
+      updateUser(userChanges);
+      return userChanges;
     } catch (e: any) {
       const parsed = parseApiError(e, 'Error al actualizar el perfil.');
       setFieldErrors(parsed.fields);

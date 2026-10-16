@@ -33,8 +33,8 @@ export default function EditProfileScreen() {
   async function handleSave() {
     setAttempted(true);
     const errors = {
-      fullName: !fullName.trim() ? 'Ingresá tu nombre.' : fullName.trim().length < 2 ? 'Usá al menos 2 caracteres.' : fullName.length > 100 ? 'No puede superar 100 caracteres.' : '',
-      username: !username.trim() ? 'Ingresá tu usuario.' : username.trim().length < 3 ? 'Usá al menos 3 caracteres.' : username.length > 50 ? 'No puede superar 50 caracteres.' : '',
+      fullName: !fullName.trim() ? 'Ingresá tu nombre.' : fullName.trim().length < 2 ? 'Usá al menos 2 caracteres.' : fullName.length > 150 ? 'No puede superar 150 caracteres.' : '',
+      username: !username.trim() ? 'Ingresá tu correo.' : !/^\S+@\S+\.\S+$/.test(username.trim()) ? 'Ingresá un correo válido.' : username.trim().length > 150 ? 'No puede superar 150 caracteres.' : '',
     };
     setFieldErrors(errors);
     if (errors.fullName || errors.username) {
@@ -70,10 +70,10 @@ export default function EditProfileScreen() {
             ref={nameRef}
             style={[styles.input, fieldErrors.fullName ? styles.inputError : touched.fullName && fullName.trim() ? styles.inputValid : null]}
             value={fullName}
-            onChangeText={value => { setFullName(value); clearError(); if (attempted || touched.fullName) setFieldErrors(e => ({ ...e, fullName: !value.trim() ? 'Ingresá tu nombre.' : value.trim().length < 2 ? 'Usá al menos 2 caracteres.' : '' })); }}
-            onBlur={() => { setTouched(t => ({ ...t, fullName: true })); setFieldErrors(e => ({ ...e, fullName: !fullName.trim() ? 'Ingresá tu nombre.' : fullName.trim().length < 2 ? 'Usá al menos 2 caracteres.' : '' })); }}
+            onChangeText={value => { setFullName(value); clearError(); if (attempted || touched.fullName) setFieldErrors(e => ({ ...e, fullName: !value.trim() ? 'Ingresá tu nombre.' : value.trim().length < 2 ? 'Usá al menos 2 caracteres.' : value.length > 150 ? 'No puede superar 150 caracteres.' : '' })); }}
+            onBlur={() => { setTouched(t => ({ ...t, fullName: true })); setFieldErrors(e => ({ ...e, fullName: !fullName.trim() ? 'Ingresá tu nombre.' : fullName.trim().length < 2 ? 'Usá al menos 2 caracteres.' : fullName.length > 150 ? 'No puede superar 150 caracteres.' : '' })); }}
             editable={!isLoading}
-            maxLength={100}
+            maxLength={150}
             placeholder="Tu nombre completo"
             placeholderTextColor={colors.textDisabled}
             autoCapitalize="words"
@@ -82,16 +82,16 @@ export default function EditProfileScreen() {
         </View>
 
         <View style={styles.field}>
-          <Text style={styles.label}>Usuario</Text>
+          <Text style={styles.label}>Correo</Text>
           <TextInput
             ref={usernameRef}
             style={[styles.input, fieldErrors.username ? styles.inputError : touched.username && username.trim() ? styles.inputValid : null]}
             value={username}
-            onChangeText={value => { setUsername(value); clearError(); if (attempted || touched.username) setFieldErrors(e => ({ ...e, username: !value.trim() ? 'Ingresá tu usuario.' : value.trim().length < 3 ? 'Usá al menos 3 caracteres.' : '' })); }}
-            onBlur={() => { setTouched(t => ({ ...t, username: true })); setFieldErrors(e => ({ ...e, username: !username.trim() ? 'Ingresá tu usuario.' : username.trim().length < 3 ? 'Usá al menos 3 caracteres.' : '' })); }}
+            onChangeText={value => { setUsername(value); clearError(); if (attempted || touched.username) setFieldErrors(e => ({ ...e, username: !value.trim() ? 'Ingresá tu correo.' : !/^\S+@\S+\.\S+$/.test(value.trim()) ? 'Ingresá un correo válido.' : value.trim().length > 150 ? 'No puede superar 150 caracteres.' : '' })); }}
+            onBlur={() => { setTouched(t => ({ ...t, username: true })); setFieldErrors(e => ({ ...e, username: !username.trim() ? 'Ingresá tu correo.' : !/^\S+@\S+\.\S+$/.test(username.trim()) ? 'Ingresá un correo válido.' : username.trim().length > 150 ? 'No puede superar 150 caracteres.' : '' })); }}
             editable={!isLoading}
-            maxLength={50}
-            placeholder="Tu nombre de usuario"
+            maxLength={150}
+            placeholder="nombre@empresa.com"
             placeholderTextColor={colors.textDisabled}
             autoCapitalize="none"
             autoCorrect={false}

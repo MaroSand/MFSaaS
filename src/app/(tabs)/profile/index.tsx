@@ -5,6 +5,7 @@ import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Linking,
   Modal,
   Pressable,
@@ -20,11 +21,14 @@ const SUPPORT_EMAIL = 'soporte@tuempresa.com';
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const [confirmVisible, setConfirmVisible] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
 
-  function handleConfirmLogout() {
+  async function handleConfirmLogout() {
+    setLogoutLoading(true);
+    await logout();
+    setLogoutLoading(false);
     setConfirmVisible(false);
-    logout();
   }
 
   function handleContactSupport() {
@@ -52,8 +56,12 @@ export default function ProfileScreen() {
           <Text style={styles.avatarText}>{initial}</Text>
         </View>
 
-        <Text style={styles.name}>{user?.fullName}</Text>
+        <Text style={styles.name}>{user?.fullName || user?.username || 'Usuario'}</Text>
         <Text style={styles.username}>@{user?.username}</Text>
+        <View style={styles.identityMeta}>
+          <View style={styles.roleBadge}><Ionicons name="shield-checkmark-outline" size={14} color={colors.primary} /><Text style={styles.roleBadgeText}>{user?.roleName || user?.role || 'Rol sin informar'}</Text></View>
+          {user?.truckId && <View style={styles.truckBadge}><Ionicons name="bus-outline" size={14} color={colors.success} /><Text style={styles.truckBadgeText}>{user.truckLicensePlate || `Camión #${user.truckId}`}</Text></View>}
+        </View>
 
         <Pressable style={styles.editProfileLink} onPress={handleEditProfile}>
           <Ionicons name="create-outline" size={16} color={colors.primary} />
@@ -167,9 +175,10 @@ export default function ProfileScreen() {
 
               <Pressable
                 style={[styles.modalButton, styles.modalConfirmButton]}
-                onPress={handleConfirmLogout}
+                onPress={() => void handleConfirmLogout()}
+                disabled={logoutLoading}
               >
-                <Text style={styles.modalConfirmText}>Cerrar sesión</Text>
+                {logoutLoading ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.modalConfirmText}>Cerrar sesión</Text>}
               </Pressable>
             </View>
           </View>
@@ -214,6 +223,11 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
+  identityMeta: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: spacing.sm, marginTop: spacing.md },
+  roleBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primaryLight },
+  roleBadgeText: { ...typography.caption, color: colors.primary, fontWeight: '700', textTransform: 'capitalize' },
+  truckBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.successLight },
+  truckBadgeText: { ...typography.caption, color: colors.success, fontWeight: '700' },
   editProfileLink: {
     flexDirection: 'row',
     alignItems: 'center',

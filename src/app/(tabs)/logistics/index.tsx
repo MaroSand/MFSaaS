@@ -14,6 +14,8 @@ import {
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
 import { logisticsService, Truck, TruckStockItem } from '../../../services/api/logisticsService';
 import { productsService } from '../../../services/api/productsService';
+import { ManagedUser, usersService } from '../../../services/api/usersService';
+import { useAuthStore } from '../../../store';
 import { IProduct } from '../../../types';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { parseApiError } from '../../../utils/apiErrors';
@@ -27,7 +29,11 @@ const today = () => {
 
 export default function LogisticsScreen() {
   const router = useRouter();
+  const user = useAuthStore(state => state.user);
+  const isDriver = user?.role === 'delivery';
   const [trucks, setTrucks] = useState<Truck[]>([]);
+  const [employees, setEmployees] = useState<ManagedUser[]>([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
   const [selectedTruck, setSelectedTruck] = useState<Truck | null>(null);
   const [stock, setStock] = useState<TruckStockItem[]>([]);
   const [products, setProducts] = useState<IProduct[]>([]);
@@ -53,7 +59,9 @@ export default function LogisticsScreen() {
     setLoadingTrucks(true);
     setError(null);
     try {
-      const result = await logisticsService.getTrucks();
+      const result = isDriver
+        ? user?.truckId ? [await logisticsService.getTruck(user.truckId)] : []
+        : await logisticsService.getTrucks();
       setTrucks(result);
       setSelectedTruck(current => current ? result.find(truck => truck.id === current.id) ?? null : null);
     } catch (err) {
@@ -61,6 +69,13 @@ export default function LogisticsScreen() {
     } finally {
       setLoadingTrucks(false);
     }
+  }, [isDriver, user?.truckId]);
+
+  const loadEmployees = useCallback(async () => {
+    setLoadingEmployees(true);
+    try { setEmployees((await usersService.getUsers()).filter(user => user.active)); }
+    catch { setEmployees([]); }
+    finally { setLoadingEmployees(false); }
   }, []);
 
   const loadStock = useCallback(async (truck: Truck, date?: string) => {
@@ -77,7 +92,7 @@ export default function LogisticsScreen() {
     }
   }, []);
 
-  useEffect(() => { void loadTrucks(); }, [loadTrucks]);
+  useEffect(() => { void loadTrucks(); if (!isDriver) void loadEmployees(); }, [isDriver, loadTrucks, loadEmployees]);
 
   const openTruckForm = (truck?: Truck) => {
     setEditingTruck(truck ?? null);
@@ -98,7 +113,7 @@ export default function LogisticsScreen() {
     setSaving(true);
     setError(null);
     try {
-      const payload = { licensePlate: normalizedPlate, ...(normalizedDriverId ? { driverId: Number(normalizedDriverId) } : {}) };
+      const payload = { licensePlate: normalizedPlate, driverId: normalizedDriverId ? Number(normalizedDriverId) : editingTruck ? null : undefined };
       if (editingTruck) await logisticsService.updateTruck(editingTruck.id, payload);
       else await logisticsService.createTruck(payload);
       setTruckModal(false);
@@ -206,17 +221,17 @@ export default function LogisticsScreen() {
         <View style={styles.headerIcon}><Ionicons name="bus-outline" size={24} color={colors.primary} /></View>
       </View>
 
-      <TouchableOpacity style={styles.assignOrdersButton} onPress={() => router.push('/(tabs)/logistics/orders')}>
+      {!isDriver && <TouchableOpacity style={styles.assignOrdersButton} onPress={() => router.push('/(tabs)/logistics/orders')}>
         <View style={styles.assignOrdersIcon}><Ionicons name="clipboard-outline" size={19} color={colors.primary} /></View>
         <View style={styles.assignOrdersCopy}><Text style={styles.assignOrdersTitle}>Asignar pedidos a camiones</Text><Text style={styles.assignOrdersHint}>Organizá qué pedidos lleva cada unidad</Text></View>
         <Ionicons name="chevron-forward" size={19} color={colors.primary} />
-      </TouchableOpacity>
+      </TouchableOpacity>}
 
       {!!error && <FormErrorBanner message={error} onRetry={() => selectedTruck ? loadStock(selectedTruck, stockDate) : loadTrucks()} />}
 
       <View style={styles.sectionHeader}>
         <View><Text style={styles.sectionTitle}>Flota</Text><Text style={styles.sectionHint}>{trucks.length} {trucks.length === 1 ? 'camión' : 'camiones'} registrados</Text></View>
-        <TouchableOpacity style={styles.primarySmallButton} onPress={() => openTruckForm()}><Ionicons name="add" size={18} color={colors.textInverse} /><Text style={styles.primarySmallText}>Agregar</Text></TouchableOpacity>
+        {!isDriver && <TouchableOpacity style={styles.primarySmallButton} onPress={() => openTruckForm()}><Ionicons name="add" size={18} color={colors.textInverse} /><Text style={styles.primarySmallText}>Agregar</Text></TouchableOpacity>}
       </View>
 
       {loadingTrucks ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : trucks.length ? trucks.map(truck => (
@@ -227,13 +242,13 @@ export default function LogisticsScreen() {
             <View style={[styles.activePill, !truck.active && styles.inactivePill]}><Text style={[styles.activeText, !truck.active && styles.inactiveText]}>{truck.active ? 'Activo' : 'Inactivo'}</Text></View>
             <Ionicons name={selectedTruck?.id === truck.id ? 'chevron-up' : 'chevron-down'} size={19} color={colors.textSecondary} />
           </TouchableOpacity>
-          <View style={styles.truckActions}>
+          {!isDriver && <View style={styles.truckActions}>
             <TouchableOpacity style={styles.truckAction} onPress={() => openTruckForm(truck)}><Ionicons name="create-outline" size={16} color={colors.textSecondary} /><Text style={styles.truckActionText}>Editar</Text></TouchableOpacity>
             <TouchableOpacity style={styles.truckAction} onPress={() => void toggleTruck(truck)} disabled={saving}><Ionicons name={truck.active ? 'pause-circle-outline' : 'play-circle-outline'} size={16} color={colors.textSecondary} /><Text style={styles.truckActionText}>{truck.active ? 'Desactivar' : 'Activar'}</Text></TouchableOpacity>
             <TouchableOpacity style={styles.truckAction} onPress={() => setDeleteTarget({ kind: 'truck', id: truck.id, label: truck.licensePlate })}><Ionicons name="trash-outline" size={16} color={colors.error} /><Text style={[styles.truckActionText, { color: colors.error }]}>Eliminar</Text></TouchableOpacity>
-          </View>
+          </View>}
         </View>
-      )) : <View style={styles.emptyCard}><Ionicons name="bus-outline" size={28} color={colors.textSecondary} /><Text style={styles.emptyTitle}>Todavía no hay camiones</Text><Text style={styles.emptyText}>Agregá un camión para gestionar su stock.</Text></View>}
+      )) : <View style={styles.emptyCard}><Ionicons name="bus-outline" size={28} color={colors.textSecondary} /><Text style={styles.emptyTitle}>{isDriver ? 'No tenés un camión asignado' : 'Todavía no hay camiones'}</Text><Text style={styles.emptyText}>{isDriver ? 'Pedile a un administrador que asigne tu usuario a un camión.' : 'Agregá un camión para gestionar su stock.'}</Text></View>}
 
       {selectedTruck && <View style={styles.stockSection}>
         <View style={styles.sectionHeader}>
@@ -255,7 +270,11 @@ export default function LogisticsScreen() {
           <Text style={styles.modalTitle}>{editingTruck ? 'Editar camión' : 'Nuevo camión'}</Text>
           {!!error && <Text style={styles.modalError}>{error}</Text>}
           <Text style={styles.inputLabel}>Patente</Text><TextInput value={plate} onChangeText={setPlate} style={styles.input} placeholder="ABC 123" autoCapitalize="characters" maxLength={20} editable={!saving} />
-          <Text style={styles.inputLabel}>ID del chofer <Text style={styles.optional}>(opcional)</Text></Text><TextInput value={driverId} onChangeText={setDriverId} style={styles.input} placeholder="ID de usuario REPARTIDOR" keyboardType="number-pad" editable={!saving} />
+          <Text style={styles.inputLabel}>Chofer o empleado <Text style={styles.optional}>(opcional)</Text></Text>
+          {loadingEmployees ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : employees.length ? <ScrollView style={styles.employeePicker} nestedScrollEnabled>
+            <TouchableOpacity style={[styles.employeeChoice, !driverId && styles.employeeChoiceSelected]} onPress={() => setDriverId('')} disabled={saving}><Text style={[styles.employeeChoiceText, !driverId && styles.employeeChoiceTextSelected]}>Sin asignar</Text></TouchableOpacity>
+            {employees.map(employee => <TouchableOpacity key={employee.id} style={[styles.employeeChoice, driverId === employee.id && styles.employeeChoiceSelected]} onPress={() => setDriverId(employee.id)} disabled={saving}><Text style={[styles.employeeChoiceText, driverId === employee.id && styles.employeeChoiceTextSelected]}>{employee.fullName || employee.email}</Text><Text style={styles.employeeRole}>{employee.email}{employee.roleName ? ` · ${employee.roleName}` : employee.roleId ? ` · Rol ${employee.roleId}` : ''}</Text></TouchableOpacity>)}
+          </ScrollView> : <View><Text style={styles.modalDescription}>No hay empleados disponibles para asignar.</Text><TouchableOpacity onPress={() => void loadEmployees()}><Text style={styles.refreshText}>Reintentar carga de usuarios</Text></TouchableOpacity></View>}
           <View style={styles.modalActions}><TouchableOpacity style={styles.secondaryButton} onPress={() => setTruckModal(false)} disabled={saving}><Text style={styles.secondaryButtonText}>Volver</Text></TouchableOpacity><TouchableOpacity style={styles.modalPrimaryButton} onPress={() => void saveTruck()} disabled={saving}>{saving ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.modalPrimaryText}>Guardar</Text>}</TouchableOpacity></View>
         </View></View>
       </Modal>
@@ -359,6 +378,12 @@ const styles = StyleSheet.create({
   productChoiceText: { ...typography.caption, color: colors.textPrimary },
   productChoiceTextSelected: { color: colors.primary, fontWeight: '700' },
   productUnit: { ...typography.caption, color: colors.textSecondary },
+  employeePicker: { maxHeight: 180, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.sm, marginBottom: spacing.md },
+  employeeChoice: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderColor: colors.border },
+  employeeChoiceSelected: { backgroundColor: colors.primaryLight },
+  employeeChoiceText: { ...typography.label, color: colors.textPrimary },
+  employeeChoiceTextSelected: { color: colors.primary },
+  employeeRole: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   modalActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl },
   secondaryButton: { flex: 1, borderWidth: 1, borderColor: colors.border, borderRadius: radius.sm, paddingVertical: spacing.md, alignItems: 'center' },
   secondaryButtonText: { ...typography.label, color: colors.textPrimary },
