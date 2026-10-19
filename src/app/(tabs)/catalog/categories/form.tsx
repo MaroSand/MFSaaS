@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { FormErrorBanner } from '../../../../components/ui/FormErrorBanner';
 import { catalogService } from '../../../../services/api/catalogService';
+import { usePermissions } from '../../../../hooks/usePermissions';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { ICategory } from '../../../../types';
 import { parseApiError } from '../../../../utils/apiErrors';
@@ -28,6 +29,8 @@ type CategoryFormData = {
 export default function CategoryFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canManageCategories, canManageCategoryStatus } = usePermissions();
+  useEffect(() => { if (!canManageCategories) router.replace('/(tabs)/catalog' as any); }, [canManageCategories, router]);
   const { categoryId } = useLocalSearchParams<{ categoryId?: string }>();
   const isEditMode = !!categoryId;
 
@@ -67,11 +70,12 @@ export default function CategoryFormScreen() {
   const selectedParentId = watch('parentCategoryId');
 
   useEffect(() => {
+    if (!canManageCategories) return;
     loadCategories();
     if (isEditMode && categoryId) {
       loadCategory(categoryId);
     }
-  }, [categoryId]);
+  }, [categoryId, canManageCategories]);
 
   const loadCategories = async () => {
     try {
@@ -206,7 +210,7 @@ export default function CategoryFormScreen() {
       >
         <View style={styles.formContainer}>
           {/* Estado activo/inactivo (solo en edición) */}
-          {isEditMode && (
+          {isEditMode && canManageCategoryStatus && (
             <View style={styles.statusRow}>
               <View style={{ flex: 1 }}>
                 <View style={styles.statusLabelRow}>

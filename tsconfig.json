@@ -6,7 +6,8 @@
     "moduleResolution": "bundler",
     "jsx": "react-native",
     "lib": [
-      "ESNext"
+      "ESNext",
+      "DOM"
     ],
     "baseUrl": ".",
     "ignoreDeprecations": "6.0",
@@ -28,5 +29,6 @@
     "expo-env.d.ts",
     ".expo/types/**/*.ts"
   ],
+  "exclude": ["app", "components", "constants"],
   "extends": "expo/tsconfig.base"
 }

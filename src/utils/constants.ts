@@ -39,6 +39,7 @@ export const ROLE_LABEL: Record<string, string> = {
 export const PERMISSIONS = {
   VIEW_CATALOG:      'view_catalog',
   MANAGE_PRODUCTS:   'manage_products',
+  MANAGE_CATEGORIES: 'manage_categories',
   MANAGE_CART:       'manage_cart',
   REGISTER_SALE:     'register_sale',
   VIEW_ORDERS:       'view_orders',

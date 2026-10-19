@@ -1,4 +1,5 @@
 import { Redirect } from 'expo-router';
+import { createElement } from 'react';
 import { useAuthStore } from '../store';
 
 // Ruta raíz ("/"). Sin este archivo, entrar a "/" directamente
@@ -7,5 +8,5 @@ import { useAuthStore } from '../store';
 // Con <Redirect> la redirección es declarativa y ocurre en el primer render.
 export default function Index() {
   const { isAuthenticated } = useAuthStore();
-  return <Redirect href={isAuthenticated ? '/(tabs)/catalog' : '/(auth)/login'} />;
+  return createElement(Redirect, { href: isAuthenticated ? '/(tabs)/catalog' : '/(auth)/login' });
 }

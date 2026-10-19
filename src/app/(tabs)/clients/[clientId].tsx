@@ -15,6 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clientsService } from '../../../services/api/clientsService';
+import { usePermissions } from '../../../hooks/usePermissions';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { IClientDetail } from '../../../types';
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
@@ -23,6 +24,7 @@ import { parseApiError } from '../../../utils/apiErrors';
 export default function ClientDetailScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canManageClients, canViewClients } = usePermissions();
   const { clientId } = useLocalSearchParams<{ clientId: string }>();
 
   const [client, setClient] = useState<IClientDetail | null>(null);
@@ -32,6 +34,7 @@ export default function ClientDetailScreen() {
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentServerError, setPaymentServerError] = useState<string | null>(null);
+  const [paymentSuccess, setPaymentSuccess] = useState<string | null>(null);
   const [paymentTouched, setPaymentTouched] = useState(false);
   const [paymentAttempted, setPaymentAttempted] = useState(false);
   const paymentInput = React.useRef<TextInput>(null);
@@ -40,8 +43,9 @@ export default function ClientDetailScreen() {
   const [activating, setActivating] = useState(false);
 
   useEffect(() => {
-    fetchClientDetail();
-  }, [clientId]);
+    if (!canViewClients) router.replace('/(tabs)/profile' as any);
+    else fetchClientDetail();
+  }, [canViewClients, clientId, router]);
 
   const fetchClientDetail = async () => {
     if (!clientId) return;
@@ -131,6 +135,7 @@ export default function ClientDetailScreen() {
     try {
       setPaymentError(null);
       setPaymentServerError(null);
+      setPaymentSuccess(null);
       setProcessingPayment(true);
       await clientsService.registerPayment(
         clientId!,
@@ -138,7 +143,7 @@ export default function ClientDetailScreen() {
       );
       setShowPaymentModal(false);
       setPaymentAmount('');
-      Alert.alert('Éxito', 'Pago registrado correctamente');
+      setPaymentSuccess('Pago registrado. El saldo y los movimientos se actualizaron.');
       await fetchClientDetail();
     } catch (err) {
       const parsed = parseApiError(err, 'No se pudo registrar el pago. Revisá tu conexión e intentá de nuevo.');
@@ -180,9 +185,9 @@ export default function ClientDetailScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Detalles del cliente</Text>
-        <TouchableOpacity onPress={handleEditClient}>
+        {canManageClients && <TouchableOpacity onPress={handleEditClient}>
           <Ionicons name="pencil" size={24} color={colors.primary} />
-        </TouchableOpacity>
+        </TouchableOpacity>}
       </View>
 
       <ScrollView
@@ -229,10 +234,11 @@ export default function ClientDetailScreen() {
             <Text style={styles.debtStatus}>Pendiente de pago</Text>
           )}
         </View>
+        {!!paymentSuccess && <View style={styles.paymentSuccess}><Ionicons name="checkmark-circle" size={19} color={colors.success} /><Text style={styles.paymentSuccessText}>{paymentSuccess}</Text><TouchableOpacity onPress={() => setPaymentSuccess(null)}><Ionicons name="close" size={17} color={colors.success} /></TouchableOpacity></View>}
 
         <TouchableOpacity style={styles.ledgerButton} onPress={handleOpenLedger}>
           <Ionicons name="receipt-outline" size={19} color={colors.primary} />
-          <Text style={styles.ledgerButtonText}>Ver cuenta corriente y movimientos</Text>
+          <View style={styles.ledgerButtonCopy}><Text style={styles.ledgerButtonText}>Cuenta corriente</Text><Text style={styles.ledgerButtonHint}>Ver saldo, movimientos y registrar pagos</Text></View>
           <Ionicons name="chevron-forward" size={18} color={colors.primary} />
         </TouchableOpacity>
 
@@ -255,9 +261,8 @@ export default function ClientDetailScreen() {
 
         {/* Order History */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>
-            Historial de pedidos ({client.orderHistory.length})
-          </Text>
+          <View style={styles.orderHistoryHeading}><View><Text style={styles.sectionTitle}>Historial de pedidos</Text><Text style={styles.orderHistoryCount}>{client.orderHistory.length} pedidos registrados</Text></View><TouchableOpacity onPress={fetchClientDetail} accessibilityLabel="Actualizar historial"><Ionicons name="refresh-outline" size={20} color={colors.primary} /></TouchableOpacity></View>
+          {!!client.orderHistoryError && <FormErrorBanner message={client.orderHistoryError} onRetry={fetchClientDetail} />}
           {client.orderHistory.length > 0 ? (
             client.orderHistory.map((order) => (
               <View key={order.id} style={styles.orderBox}>
@@ -266,7 +271,9 @@ export default function ClientDetailScreen() {
                   <View
                     style={[
                       styles.statusBadge,
-                      order.status === 'delivered'
+                      order.status === 'cancelled'
+                        ? styles.statusCancelled
+                        : order.status === 'delivered'
                         ? styles.statusDelivered
                         : order.status === 'pending'
                         ? styles.statusPending
@@ -274,7 +281,9 @@ export default function ClientDetailScreen() {
                     ]}
                   >
                     <Text style={styles.statusText}>
-                      {order.status === 'delivered'
+                      {order.status === 'cancelled'
+                        ? 'Cancelado'
+                        : order.status === 'delivered'
                         ? 'Entregado'
                         : order.status === 'pending'
                         ? 'Pendiente'
@@ -285,6 +294,7 @@ export default function ClientDetailScreen() {
                 <Text style={styles.orderDate}>
                   {new Date(order.createdAt).toLocaleDateString('es-AR')}
                 </Text>
+                <View style={styles.orderTruckRow}><Ionicons name="bus-outline" size={15} color={colors.primary} /><Text style={styles.orderTruckText}>{order.truckLicensePlate ?? (order.truckId ? `Camión #${order.truckId}` : 'Sin camión asignado')}</Text>{!!order.truckDriverName && <Text style={styles.orderTruckDriver}>· {order.truckDriverName}</Text>}</View>
                 <View style={styles.orderFooter}>
                   <Text style={styles.orderTotal}>
                     Total: ${order.total.toLocaleString('es-AR')}
@@ -298,7 +308,7 @@ export default function ClientDetailScreen() {
               </View>
             ))
           ) : (
-            <Text style={styles.noOrdersText}>Sin historial de pedidos</Text>
+            client.orderHistoryError ? null : <Text style={styles.noOrdersText}>Todavía no hay pedidos para este cliente.</Text>
           )}
         </View>
         {/* Deactivate client */}
@@ -537,7 +547,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border,
     borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg,
   },
-  ledgerButtonText: { ...typography.label, color: colors.primary, flex: 1 },
+  ledgerButtonCopy: { flex: 1 },
+  ledgerButtonText: { ...typography.label, color: colors.primary },
+  ledgerButtonHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  paymentSuccess: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.success, borderRadius: radius.md, backgroundColor: colors.successLight },
+  paymentSuccessText: { ...typography.caption, color: colors.textPrimary, flex: 1 },
   debtCardHighlight: {
     backgroundColor: colors.errorLight,
     borderLeftColor: colors.error,
@@ -574,6 +588,8 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.md,
   },
+  orderHistoryHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  orderHistoryCount: { ...typography.caption, color: colors.textSecondary, marginTop: -spacing.sm, marginBottom: spacing.md },
   addressBox: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
@@ -622,6 +638,7 @@ const styles = StyleSheet.create({
   statusPending: {
     backgroundColor: colors.warningLight,
   },
+  statusCancelled: { backgroundColor: colors.errorLight },
   statusProcessing: {
     backgroundColor: colors.infoLight,
   },
@@ -635,6 +652,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginBottom: spacing.sm,
   },
+  orderTruckRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
+  orderTruckText: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
+  orderTruckDriver: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
   orderFooter: {
     gap: spacing.xs,
   },

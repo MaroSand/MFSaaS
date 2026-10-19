@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   ActivityIndicator,
   Linking,
@@ -20,6 +21,7 @@ const SUPPORT_EMAIL = 'soporte@tuempresa.com';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
+  const { canManageUsers } = usePermissions();
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
@@ -128,13 +130,13 @@ export default function ProfileScreen() {
 
       <Text style={styles.sectionLabel}>Administración</Text>
       <View style={styles.section}>
-        <Pressable style={styles.row} onPress={handleUsers}>
+        {canManageUsers && <Pressable style={styles.row} onPress={handleUsers}>
           <View style={styles.rowLeft}>
             <Ionicons name="people-circle-outline" size={20} color={colors.textPrimary} />
             <Text style={styles.rowText}>Gestionar usuarios</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={colors.textDisabled} />
-        </Pressable>
+        </Pressable>}
       </View>
 
       <Pressable
