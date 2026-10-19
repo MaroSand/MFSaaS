@@ -1,12 +1,30 @@
-import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useCategories } from '../../../../hooks';
-import { productsService } from '../../../../services/api/productsService';
-import { colors, radius, spacing, typography } from '../../../../theme';
-import { IProduct } from '../../../../types';
+import { Ionicons } from "@expo/vector-icons";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useCategories } from "../../../../hooks";
+import { productsService } from "../../../../services/api/productsService";
+import { colors, radius, spacing, typography } from "../../../../theme";
+import { IProduct } from "../../../../types";
+
+// Compara sin importar mayúsculas ni tildes: "jamon" encuentra "Jamón".
+const normalize = (text: string) =>
+  text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase()
+    .trim();
 
 export default function ProductManagementScreen() {
   const router = useRouter();
@@ -16,31 +34,61 @@ export default function ProductManagementScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [sortAsc, setSortAsc] = useState(true);
+
+  // Filtra por nombre o categoría y ordena alfabéticamente por nombre.
+  const visibleProducts = useMemo(() => {
+    const query = normalize(search);
+    const filtered = query
+      ? products.filter(
+          (product) =>
+            normalize(product.name).includes(query) ||
+            normalize(product.category.name).includes(query),
+        )
+      : products;
+    const sorted = [...filtered].sort((a, b) =>
+      a.name.localeCompare(b.name, "es", { sensitivity: "base" }),
+    );
+    return sortAsc ? sorted : sorted.reverse();
+  }, [products, search, sortAsc]);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await productsService.getProducts('', [], categories);
+      const result = await productsService.getProducts("", [], categories);
       setProducts(result.items);
     } catch (err: any) {
-      setError(err?.response?.data?.message || err.message || 'No se pudieron cargar los productos.');
+      setError(
+        err?.response?.data?.message ||
+          err.message ||
+          "No se pudieron cargar los productos.",
+      );
     } finally {
       setLoading(false);
     }
   }, [categories]);
 
-  useFocusEffect(useCallback(() => { loadProducts(); }, [loadProducts]));
+  useFocusEffect(
+    useCallback(() => {
+      loadProducts();
+    }, [loadProducts]),
+  );
 
   const toggleActive = (product: IProduct) => {
     const activating = !product.active;
     Alert.alert(
-      activating ? 'Activar producto' : 'Desactivar producto',
-      '¿Querés ' + (activating ? 'activar' : 'desactivar') + ' "' + product.name + '"?',
+      activating ? "Activar producto" : "Desactivar producto",
+      "¿Querés " +
+        (activating ? "activar" : "desactivar") +
+        ' "' +
+        product.name +
+        '"?',
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { text: "Cancelar", style: "cancel" },
         {
-          text: 'Confirmar',
+          text: "Confirmar",
           onPress: async () => {
             setBusyId(product.id);
             try {
@@ -48,7 +96,11 @@ export default function ProductManagementScreen() {
               else await productsService.deactivateProduct(product.id);
               await loadProducts();
             } catch (err: any) {
-              Alert.alert('Error', err?.response?.data?.message || 'No se pudo cambiar el estado del producto.');
+              Alert.alert(
+                "Error",
+                err?.response?.data?.message ||
+                  "No se pudo cambiar el estado del producto.",
+              );
             } finally {
               setBusyId(null);
             }
@@ -59,43 +111,70 @@ export default function ProductManagementScreen() {
   };
 
   const deleteProduct = (product: IProduct) => {
-    Alert.alert('Eliminar producto', '¿Eliminar "' + product.name + '"? Esta acción no se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Eliminar',
-        style: 'destructive',
-        onPress: async () => {
-          setBusyId(product.id);
-          try {
-            await productsService.deleteProduct(product.id);
-            await loadProducts();
-          } catch (err: any) {
-            Alert.alert('Error', err?.response?.data?.message || 'No se pudo eliminar el producto.');
-          } finally {
-            setBusyId(null);
-          }
+    Alert.alert(
+      "Eliminar producto",
+      '¿Eliminar "' + product.name + '"? Esta acción no se puede deshacer.',
+      [
+        { text: "Cancelar", style: "cancel" },
+        {
+          text: "Eliminar",
+          style: "destructive",
+          onPress: async () => {
+            setBusyId(product.id);
+            try {
+              await productsService.deleteProduct(product.id);
+              await loadProducts();
+            } catch (err: any) {
+              Alert.alert(
+                "Error",
+                err?.response?.data?.message ||
+                  "No se pudo eliminar el producto.",
+              );
+            } finally {
+              setBusyId(null);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const renderItem = ({ item }: { item: IProduct }) => (
     <View style={styles.card}>
-      <TouchableOpacity style={styles.mainInfo} onPress={() => router.push({
-        pathname: '/(tabs)/catalog/products/form' as any,
-        params: { productId: item.id },
-      })}>
+      <TouchableOpacity
+        style={styles.mainInfo}
+        onPress={() =>
+          router.push({
+            pathname: "/(tabs)/catalog/products/form" as any,
+            params: { productId: item.id },
+          })
+        }
+      >
         <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.meta}>{item.category.name} · {'$' + item.price.toLocaleString('es-AR')}</Text>
+        <Text style={styles.meta}>
+          {item.category.name} · {"$" + item.price.toLocaleString("es-AR")}
+        </Text>
         {!!item.sku && <Text style={styles.sku}>SKU: {item.sku}</Text>}
       </TouchableOpacity>
       <View style={styles.actions}>
-        {busyId === item.id ? <ActivityIndicator color={colors.primary} /> : (
+        {busyId === item.id ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
           <>
-            <TouchableOpacity accessibilityLabel={item.active ? 'Desactivar' : 'Activar'} onPress={() => toggleActive(item)}>
-              <Ionicons name={item.active ? 'eye-outline' : 'eye-off-outline'} size={22} color={item.active ? colors.success : colors.textSecondary} />
+            <TouchableOpacity
+              accessibilityLabel={item.active ? "Desactivar" : "Activar"}
+              onPress={() => toggleActive(item)}
+            >
+              <Ionicons
+                name={item.active ? "eye-outline" : "eye-off-outline"}
+                size={22}
+                color={item.active ? colors.success : colors.textSecondary}
+              />
             </TouchableOpacity>
-            <TouchableOpacity accessibilityLabel="Eliminar" onPress={() => deleteProduct(item)}>
+            <TouchableOpacity
+              accessibilityLabel="Eliminar"
+              onPress={() => deleteProduct(item)}
+            >
               <Ionicons name="trash-outline" size={21} color={colors.error} />
             </TouchableOpacity>
           </>
@@ -107,31 +186,105 @@ export default function ProductManagementScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} accessibilityLabel="Volver">
+        <TouchableOpacity
+          onPress={() => router.back()}
+          accessibilityLabel="Volver"
+        >
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.title}>Productos</Text>
         <View style={{ width: 24 }} />
       </View>
+      <View style={styles.toolbar}>
+        <View style={styles.searchBox}>
+          <Ionicons
+            name="search-outline"
+            size={18}
+            color={colors.textSecondary}
+          />
+          <TextInput
+            style={styles.searchInput}
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Buscar por nombre o categoría"
+            placeholderTextColor={colors.textSecondary}
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+          {!!search && (
+            <TouchableOpacity
+              onPress={() => setSearch("")}
+              accessibilityLabel="Borrar búsqueda"
+            >
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={colors.textSecondary}
+              />
+            </TouchableOpacity>
+          )}
+        </View>
+        <TouchableOpacity
+          style={styles.sortButton}
+          onPress={() => setSortAsc((value) => !value)}
+          accessibilityLabel={
+            sortAsc ? "Ordenado de la A a la Z" : "Ordenado de la Z a la A"
+          }
+        >
+          <Ionicons
+            name={sortAsc ? "arrow-down" : "arrow-up"}
+            size={14}
+            color={colors.primary}
+          />
+          <Text style={styles.sortText}>{sortAsc ? "A-Z" : "Z-A"}</Text>
+        </TouchableOpacity>
+      </View>
       {error ? (
         <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={44} color={colors.error} />
+          <Ionicons
+            name="alert-circle-outline"
+            size={44}
+            color={colors.error}
+          />
           <Text style={styles.error}>{error}</Text>
-          <TouchableOpacity style={styles.retry} onPress={loadProducts}><Text style={styles.retryText}>Reintentar</Text></TouchableOpacity>
+          <TouchableOpacity style={styles.retry} onPress={loadProducts}>
+            <Text style={styles.retryText}>Reintentar</Text>
+          </TouchableOpacity>
         </View>
       ) : loading && products.length === 0 ? (
-        <View style={styles.center}><ActivityIndicator size="large" color={colors.primary} /><Text style={styles.helper}>Cargando productos…</Text></View>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={styles.helper}>Cargando productos…</Text>
+        </View>
       ) : (
         <FlatList
-          data={products}
-          keyExtractor={item => item.id}
+          data={visibleProducts}
+          keyExtractor={(item) => item.id}
           renderItem={renderItem}
-          contentContainerStyle={products.length ? styles.list : styles.center}
-          refreshControl={<RefreshControl refreshing={loading} onRefresh={loadProducts} tintColor={colors.primary} />}
-          ListEmptyComponent={<Text style={styles.helper}>Todavía no hay productos.</Text>}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={
+            visibleProducts.length ? styles.list : styles.center
+          }
+          refreshControl={
+            <RefreshControl
+              refreshing={loading}
+              onRefresh={loadProducts}
+              tintColor={colors.primary}
+            />
+          }
+          ListEmptyComponent={
+            <Text style={styles.helper}>
+              {products.length
+                ? "No hay productos que coincidan con la búsqueda."
+                : "Todavía no hay productos."}
+            </Text>
+          }
         />
       )}
-      <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + spacing.lg }]} onPress={() => router.push('/(tabs)/catalog/products/form' as any)}>
+      <TouchableOpacity
+        style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}
+        onPress={() => router.push("/(tabs)/catalog/products/form" as any)}
+      >
         <Ionicons name="add" size={25} color={colors.textInverse} />
       </TouchableOpacity>
     </View>
@@ -140,19 +293,117 @@ export default function ProductManagementScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
   title: { ...typography.heading, color: colors.textPrimary },
+  toolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  searchBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.background,
+  },
+  searchInput: {
+    flex: 1,
+    ...typography.body,
+    color: colors.textPrimary,
+    paddingVertical: spacing.sm,
+  },
+  sortButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
+  },
+  sortText: { ...typography.label, color: colors.primary },
   list: { padding: spacing.lg, paddingBottom: spacing.xxxl },
-  card: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg, marginBottom: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
   mainInfo: { flex: 1 },
   name: { ...typography.subheading, color: colors.textPrimary },
-  meta: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs },
-  sku: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, paddingLeft: spacing.md },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
-  helper: { ...typography.body, color: colors.textSecondary, marginTop: spacing.md },
-  error: { ...typography.body, color: colors.error, marginTop: spacing.md, textAlign: 'center' },
-  retry: { backgroundColor: colors.primary, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radius.md, marginTop: spacing.md },
+  meta: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  sku: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  actions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+    paddingLeft: spacing.md,
+  },
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  helper: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.md,
+  },
+  error: {
+    ...typography.body,
+    color: colors.error,
+    marginTop: spacing.md,
+    textAlign: "center",
+  },
+  retry: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.md,
+  },
   retryText: { ...typography.label, color: colors.textInverse },
-  fab: { position: 'absolute', right: spacing.lg, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, justifyContent: 'center', alignItems: 'center', elevation: 6 },
+  fab: {
+    position: "absolute",
+    right: spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 6,
+  },
 });
