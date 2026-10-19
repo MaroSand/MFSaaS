@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FormErrorBanner } from "../../../../components/ui/FormErrorBanner";
 import { useCategories } from "../../../../hooks";
+import { usePermissions } from "../../../../hooks/usePermissions";
 import {
   ProductWriteRequest,
   productsService,
@@ -34,7 +35,9 @@ export default function ProductFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { canManageProducts } = usePermissions();
-  useEffect(() => { if (!canManageProducts) router.replace('/(tabs)/catalog' as any); }, [canManageProducts, router]);
+  useEffect(() => {
+    if (!canManageProducts) router.replace("/(tabs)/catalog" as any);
+  }, [canManageProducts, router]);
   const params = useLocalSearchParams<{ productId?: string }>();
   const productId = Array.isArray(params.productId)
     ? params.productId[0]

@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCategories } from "../../../../hooks";
+import { usePermissions } from "../../../../hooks/usePermissions";
 import { productsService } from "../../../../services/api/productsService";
 import { colors, radius, spacing, typography } from "../../../../theme";
 import { IProduct } from "../../../../types";
@@ -30,7 +31,9 @@ export default function ProductManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { canManageProducts, canViewCatalog } = usePermissions();
-  useEffect(() => { if (!canViewCatalog) router.replace('/(tabs)/orders' as any); }, [canViewCatalog, router]);
+  useEffect(() => {
+    if (!canViewCatalog) router.replace("/(tabs)/orders" as any);
+  }, [canViewCatalog, router]);
   const { categories } = useCategories(canViewCatalog);
   const [products, setProducts] = useState<IProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -181,7 +184,7 @@ export default function ProductManagementScreen() {
             </TouchableOpacity>
           </>
         )}
-      </View>}
+      </View>
     </View>
   );
 
@@ -288,7 +291,7 @@ export default function ProductManagementScreen() {
         onPress={() => router.push("/(tabs)/catalog/products/form" as any)}
       >
         <Ionicons name="add" size={25} color={colors.textInverse} />
-      </TouchableOpacity>}
+      </TouchableOpacity>
     </View>
   );
 }
