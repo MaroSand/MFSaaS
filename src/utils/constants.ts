@@ -1,38 +1,49 @@
 // El OpenAPI publica las rutas bajo /api (por ejemplo, /api/auth/login).
 // Axios combina este prefijo con las rutas de services/api.
-export const BASE_URL = 'https://superadditional-septariate-olevia.ngrok-free.dev/api';
+export const BASE_URL =
+  "https://superadditional-septariate-olevia.ngrok-free.dev/api";
 
+// Unidades de venta que se pueden elegir al crear/editar un producto.
+// `value` es lo que se envía al backend; `label` lo que ve el usuario.
+export const PRODUCT_UNITS: { value: string; label: string }[] = [
+  { value: "unidad", label: "Unidad" },
+  { value: "kg", label: "Kg" },
+  { value: "g", label: "Gramo" },
+  { value: "lt", label: "Litro" },
+  { value: "caja", label: "Caja" },
+  { value: "pack", label: "Pack" },
+];
 
 export const ORDER_STATUS_LABEL: Record<string, string> = {
-  pending:   'Pendiente',
-  preparing: 'Preparando',
-  ready:     'Listo',
-  delivered: 'Entregado',
-  cancelled: 'Cancelado',
+  pending: "Pendiente",
+  preparing: "Preparando",
+  ready: "Listo",
+  delivered: "Entregado",
+  cancelled: "Cancelado",
 };
 
 export const PAYMENT_METHOD_LABEL: Record<string, string> = {
-  cash:     'Efectivo',
-  transfer: 'Transferencia',
-  mixed:    'Mixto',
+  cash: "Efectivo",
+  transfer: "Transferencia",
+  mixed: "Mixto",
 };
 
 export const DELIVERY_TYPE_LABEL: Record<string, string> = {
-  pickup:   'Retiro en central',
-  delivery: 'Envío a domicilio',
+  pickup: "Retiro en central",
+  delivery: "Envío a domicilio",
 };
 
 export const STOCK_MOVEMENT_LABEL: Record<string, string> = {
-  entry:      'Entrada',
-  exit:       'Salida',
-  adjustment: 'Ajuste',
+  entry: "Entrada",
+  exit: "Salida",
+  adjustment: "Ajuste",
 };
 
 export const ROLE_LABEL: Record<string, string> = {
-  owner:    'Dueño',
-  manager:  'Encargado',
-  seller:   'Vendedor',
-  delivery: 'Repartidor',
+  owner: "Dueño",
+  manager: "Encargado",
+  seller: "Vendedor",
+  delivery: "Repartidor",
 };
 
 // Permissions usados en usePermissions hook
