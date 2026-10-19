@@ -33,6 +33,8 @@ const normalizeUnit = (value?: string | null) => {
 export default function ProductFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canManageProducts } = usePermissions();
+  useEffect(() => { if (!canManageProducts) router.replace('/(tabs)/catalog' as any); }, [canManageProducts, router]);
   const params = useLocalSearchParams<{ productId?: string }>();
   const productId = Array.isArray(params.productId)
     ? params.productId[0]

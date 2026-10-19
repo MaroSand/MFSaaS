@@ -6,7 +6,7 @@
 import { IClient, IClientDetail, IDebtor, IOrder, IPayment, IProduct, IUser } from '../../types';
 import { MOCK_CLIENTS, MOCK_DASHBOARD, MOCK_ORDERS, MOCK_PRODUCTS, MOCK_USERS } from './mockData';
 
-const delay = (ms = 600) => new Promise(res => setTimeout(res, ms));
+const delay = (ms = 600) => new Promise<void>(resolve => { setTimeout(() => resolve(), ms); });
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ export async function mockGetDebtors(): Promise<{ items: IDebtor[] }> {
   
   const items = Array.from(debtorMap.values())
     .map(d => ({
-      client: { id: d.client.id, businessName: d.client.businessName, phone: d.client.phone, totalDebt: d.debt },
+      client: { id: d.client.id, businessName: d.client.businessName, taxId: d.client.taxId, phone: d.client.phone, totalDebt: d.debt },
       totalDebt: d.debt,
       overdueOrders: d.orders,
     }))

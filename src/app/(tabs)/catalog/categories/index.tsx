@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CategoryCard } from '../../../../components/cards';
 import { useCategories } from '../../../../hooks';
+import { usePermissions } from '../../../../hooks/usePermissions';
 import { catalogService } from '../../../../services/api/catalogService';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { ICategory } from '../../../../types';
@@ -23,7 +24,9 @@ import { ICategory } from '../../../../types';
 export default function CategoriesListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { categories, loading, error, refetch, search, setSearch } = useCategories();
+  const { canManageCategories, canManageCategoryStatus } = usePermissions();
+  useEffect(() => { if (!canManageCategories) router.replace('/(tabs)/catalog' as any); }, [canManageCategories, router]);
+  const { categories, loading, error, refetch, search, setSearch } = useCategories(canManageCategories);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const parentNameOf = (category: ICategory) =>
@@ -100,7 +103,7 @@ export default function CategoriesListScreen() {
     Alert.alert(category.name, 'Elegí una acción', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Editar', onPress: () => handleEdit(category) },
-      { text: 'Eliminar', style: 'destructive', onPress: () => handleDelete(category) },
+      ...(canManageCategoryStatus ? [{ text: 'Eliminar', style: 'destructive' as const, onPress: () => handleDelete(category) }] : []),
     ]);
   };
 
@@ -111,8 +114,8 @@ export default function CategoriesListScreen() {
         category={item}
         parentName={parentNameOf(item)}
         onPress={() => !isBusy && handleEdit(item)}
-        onLongPress={() => !isBusy && handleLongPress(item)}
-        onToggleActive={() => handleToggleActive(item)}
+        onLongPress={() => canManageCategoryStatus && !isBusy && handleLongPress(item)}
+        onToggleActive={canManageCategoryStatus ? () => handleToggleActive(item) : undefined}
         togglingActive={isBusy}
       />
     );
@@ -178,7 +181,7 @@ export default function CategoriesListScreen() {
         )}
       </View>
 
-      <Text style={styles.hint}>Mantené presionada una categoría para más acciones</Text>
+      <Text style={styles.hint}>{canManageCategoryStatus ? 'Mantené presionada una categoría para más acciones' : 'Tocá una categoría para editarla'}</Text>
 
       {/* List */}
       {categories.length > 0 ? (

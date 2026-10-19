@@ -13,26 +13,6 @@ export interface TruckWriteRequest {
   driverId?: number | null;
 }
 
-export interface TruckStockItem {
-  id: string;
-  productId: string;
-  productName: string;
-  deliveryDate: string;
-  quantityLoaded: number;
-  quantityReturned: number;
-}
-
-export interface TruckStockCreateRequest {
-  productId: number;
-  deliveryDate: string;
-  quantityLoaded: number;
-}
-
-export interface TruckStockUpdateRequest {
-  quantityLoaded: number;
-  quantityReturned: number;
-}
-
 type RawObject = Record<string, any>;
 
 function unwrapList(payload: unknown, keys: string[]): RawObject[] {
@@ -53,25 +33,14 @@ function unwrapOne(payload: unknown): RawObject {
 }
 
 function toTruck(dto: RawObject): Truck {
+  const driver = dto.driver && typeof dto.driver === 'object' ? dto.driver as RawObject : {};
   const active = dto.active ?? dto.isActive ?? true;
   return {
     id: String(dto.id ?? dto.truckId ?? ''),
     licensePlate: String(dto.licensePlate ?? dto.plate ?? ''),
-    driverId: dto.driverId == null ? undefined : String(dto.driverId),
-    driverName: dto.driverName == null ? undefined : String(dto.driverName),
+    driverId: dto.driverId == null && driver.id == null ? undefined : String(dto.driverId ?? driver.id),
+    driverName: String(dto.driverName ?? driver.fullName ?? driver.name ?? dto.userName ?? '') || undefined,
     active: active === true || active === 1 || active === 'true',
-  };
-}
-
-function toStockItem(dto: RawObject): TruckStockItem {
-  const product = dto.product ?? {};
-  return {
-    id: String(dto.id ?? dto.stockId ?? ''),
-    productId: String(dto.productId ?? product.id ?? ''),
-    productName: String(dto.productName ?? product.name ?? dto.name ?? 'Producto'),
-    deliveryDate: String(dto.deliveryDate ?? dto.date ?? ''),
-    quantityLoaded: Number(dto.quantityLoaded ?? dto.loadedQty ?? 0),
-    quantityReturned: Number(dto.quantityReturned ?? dto.returnedQty ?? 0),
   };
 }
 
@@ -109,22 +78,5 @@ export const logisticsService = {
 
   async deleteTruck(id: string): Promise<void> {
     await client.delete(`/truck/delete/${id}`);
-  },
-
-  async getTruckStock(truckId: string, date?: string): Promise<TruckStockItem[]> {
-    const response = await client.get<unknown>(`/truck/${truckId}/stock`, { params: date ? { date } : undefined });
-    return unwrapList(response.data, ['items', 'content', 'data', 'stock']).map(toStockItem);
-  },
-
-  async loadProduct(truckId: string, payload: TruckStockCreateRequest): Promise<void> {
-    await client.post(`/truck/${truckId}/stock`, payload);
-  },
-
-  async updateStock(stockId: string, payload: TruckStockUpdateRequest): Promise<void> {
-    await client.put(`/truck/stock/${stockId}`, payload);
-  },
-
-  async deleteStock(stockId: string): Promise<void> {
-    await client.delete(`/truck/stock/${stockId}`);
   },
 };

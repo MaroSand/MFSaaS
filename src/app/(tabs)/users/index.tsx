@@ -1,15 +1,19 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { useRouter } from 'expo-router';
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
 import { ManagedRole, ManagedUser, UserWriteRequest, usersService } from '../../../services/api/usersService';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { parseApiError } from '../../../utils/apiErrors';
+import { usePermissions } from '../../../hooks/usePermissions';
 
 type Draft = { fullName: string; email: string; roleId: string; password: string };
 const emptyDraft: Draft = { fullName: '', email: '', roleId: '', password: '' };
 
 export default function UsersScreen() {
+  const router = useRouter();
+  const { canManageUsers } = usePermissions();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [roles, setRoles] = useState<ManagedRole[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +35,10 @@ export default function UsersScreen() {
     catch (err) { setError(parseApiError(err, 'No se pudieron cargar los usuarios.').message); }
     finally { setLoading(false); }
   }, []);
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!canManageUsers) router.replace('/(tabs)/profile' as any);
+    else void load();
+  }, [canManageUsers, load, router]);
 
   const openForm = (user?: ManagedUser) => {
     setTarget(user ?? null);

@@ -14,7 +14,7 @@ interface UseClientsReturn {
   setPage: (page: number) => void;
 }
 
-export const useClients = (): UseClientsReturn => {
+export const useClients = (enabled = true): UseClientsReturn => {
   const [clients, setClients] = useState<IClient[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -23,6 +23,12 @@ export const useClients = (): UseClientsReturn => {
   const [total, setTotal] = useState(0);
 
   const fetchClients = useCallback(async () => {
+    if (!enabled) {
+      setClients([]);
+      setTotal(0);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -35,7 +41,7 @@ export const useClients = (): UseClientsReturn => {
     } finally {
       setLoading(false);
     }
-  }, [search, page]);
+  }, [enabled, search, page]);
 
   useEffect(() => {
     fetchClients();

@@ -15,16 +15,24 @@ import {
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
 import { clientsService } from '../../../services/api/clientsService';
 import { logisticsService, Truck } from '../../../services/api/logisticsService';
+import { productsService } from '../../../services/api/productsService';
 import { OrderListItem, salesService } from '../../../services/api/salesService';
+import { ledgerService } from '../../../services/api/ledgerService';
 import { useCartStore } from '../../../store/cartStore';
 import { useAuthStore } from '../../../store/authStore';
+import { usePermissions } from '../../../hooks/usePermissions';
 import { colors, radius, spacing, typography } from '../../../theme';
-import { IAddress, IClient, IClientSummary } from '../../../types';
+import { IAddress, IClient, IClientSummary, IProduct } from '../../../types';
 import { parseApiError } from '../../../utils/apiErrors';
 
 type ScreenMode = 'new' | 'history';
+type EditableOrderItem = { productId: number; productName: string; unit: string; quantity: number; unitPrice: number };
+type OrderDetailData = { customerId: number; deliveryAddressId?: number; deliveryAddressSnapshot: string; deliveryDate: string; createdById?: number; items: EditableOrderItem[] };
+type DeliveryPaymentChoice = 'full' | 'account' | 'partial';
+type PendingDeliveryPayment = { order: OrderListItem; choice: DeliveryPaymentChoice; amount: number };
 
 const money = (value: number) => `$${value.toLocaleString('es-AR')}`;
+const normalizeText = (value: string) => value.toLocaleLowerCase('es-AR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 const localToday = () => {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -40,6 +48,7 @@ const statusCopy: Record<string, string> = {
 export default function OrdersScreen() {
   const router = useRouter();
   const user = useAuthStore(state => state.user);
+  const { canAssignOrdersToTruck, canViewOrders } = usePermissions();
   const isDriver = user?.role === 'delivery';
   const { items, total, updateQty, clearCart } = useCartStore();
   const [mode, setMode] = useState<ScreenMode>(isDriver ? 'history' : 'new');
@@ -54,6 +63,19 @@ export default function OrdersScreen() {
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [cancelConfirmOrder, setCancelConfirmOrder] = useState<OrderListItem | null>(null);
   const [orders, setOrders] = useState<OrderListItem[]>([]);
+  const [assignmentOrder, setAssignmentOrder] = useState<OrderListItem | null>(null);
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [detailOrder, setDetailOrder] = useState<OrderListItem | null>(null);
+  const [detail, setDetail] = useState<OrderDetailData | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [editingDetail, setEditingDetail] = useState(false);
+  const [editItems, setEditItems] = useState<EditableOrderItem[]>([]);
+  const [editProducts, setEditProducts] = useState<IProduct[]>([]);
+  const [loadingEditProducts, setLoadingEditProducts] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [trucks, setTrucks] = useState<Truck[]>([]);
   const [selectedTruckId, setSelectedTruckId] = useState<string | null>(null);
   const [deliveryDate, setDeliveryDate] = useState(localToday());
@@ -61,7 +83,16 @@ export default function OrdersScreen() {
   const [truckError, setTruckError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
-  const [canLoadTruckStock, setCanLoadTruckStock] = useState(false);
+  const [deliveryOrder, setDeliveryOrder] = useState<OrderListItem | null>(null);
+  const [deliveryChoice, setDeliveryChoice] = useState<DeliveryPaymentChoice | null>(null);
+  const [deliveryAmount, setDeliveryAmount] = useState('');
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [deliveryAlreadyMarked, setDeliveryAlreadyMarked] = useState(false);
+  const [deliveryStatusUnknown, setDeliveryStatusUnknown] = useState(false);
+  const [pendingDeliveryPayment, setPendingDeliveryPayment] = useState<PendingDeliveryPayment | null>(null);
+  const [deliverySubmitting, setDeliverySubmitting] = useState(false);
+
+  useEffect(() => { if (!canViewOrders) router.replace('/(tabs)/profile' as any); }, [canViewOrders, router]);
 
   const loadClients = useCallback(async () => {
     setLoadingClients(true);
@@ -84,7 +115,7 @@ export default function OrdersScreen() {
         setOrders([]);
         setOrderError('Tu usuario todavía no está asignado a un camión. Pedile a un administrador que lo configure.');
       } else {
-        setOrders(await salesService.getOrders(isDriver ? { truckId: Number(user?.truckId) } : {}));
+        setOrders(await salesService.getOrdersWithTruckDetails(isDriver ? { truckId: Number(user?.truckId) } : {}));
       }
     } catch (error) {
       setOrderError(parseApiError(error, 'No se pudieron cargar los pedidos.').message);
@@ -105,9 +136,119 @@ export default function OrdersScreen() {
     }
   }, []);
 
-  useEffect(() => { void loadClients(); }, [loadClients]);
-  useEffect(() => { void loadTrucks(); }, [loadTrucks]);
-  useEffect(() => { if (isDriver || mode === 'history') void loadOrders(); }, [isDriver, mode, loadOrders]);
+  const openOrderDetails = async (order: OrderListItem) => {
+    setDetailOrder(order);
+    setDetail(null);
+    setDetailError(null);
+    setEditingDetail(false);
+    setDetailLoading(true);
+    try {
+      const raw = await salesService.getOrder(order.id);
+      const customerId = Number(raw.customerId ?? raw.customer?.id ?? raw.clientId ?? raw.client?.id);
+      const addressSnapshot = String(raw.deliveryAddressSnapshot ?? raw.deliveryAddressDescription ?? raw.addressSnapshot ?? '');
+      let deliveryAddressId = Number(raw.deliveryAddressId ?? raw.deliveryAddress?.id ?? raw.addressId ?? raw.address?.id);
+      if (!Number.isInteger(deliveryAddressId) || deliveryAddressId < 1) {
+        deliveryAddressId = 0;
+        if (Number.isInteger(customerId) && customerId > 0 && addressSnapshot) {
+          const addressesForCustomer = await clientsService.getClientAddresses(String(customerId)).catch(() => []);
+          const snapshot = normalizeText(addressSnapshot);
+          const matches = addressesForCustomer.filter(address => {
+            const street = normalizeText(address.street);
+            const city = normalizeText(address.city);
+            return street.length > 3 && snapshot.includes(street) && (!city || snapshot.includes(city));
+          });
+          if (matches.length === 1 && /^\d+$/.test(matches[0].id)) deliveryAddressId = Number(matches[0].id);
+        }
+      }
+      const rawItems = raw.items ?? raw.orderItems ?? raw.details ?? [];
+      const createdById = Number(raw.createdById ?? raw.createdBy?.id ?? raw.userId);
+      setDetail({
+        customerId,
+        ...(Number.isInteger(deliveryAddressId) && deliveryAddressId > 0 ? { deliveryAddressId } : {}),
+        deliveryAddressSnapshot: addressSnapshot,
+        deliveryDate: String(raw.deliveryDate ?? ''),
+        ...(Number.isInteger(createdById) && createdById > 0 ? { createdById } : {}),
+        items: Array.isArray(rawItems) ? rawItems.map((item: Record<string, any>) => ({
+          productId: Number(item.productId ?? item.product?.id),
+          productName: String(item.productName ?? item.product?.name ?? item.name ?? 'Producto'),
+          unit: String(item.unit ?? item.product?.unit ?? 'unidad'),
+          quantity: Number(item.quantity ?? item.qty ?? 0),
+          unitPrice: Number(item.unitPrice ?? item.price ?? 0),
+        })).filter((item: EditableOrderItem) => Number.isInteger(item.productId) && item.productId > 0) : [],
+      });
+    } catch (error) {
+      setDetailError(parseApiError(error, 'No se pudieron cargar los productos y datos del pedido.').message);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const startOrderEdit = async () => {
+    if (!detailOrder || !detail) return;
+    if (detailOrder.status !== 'PENDING') return;
+    if (!Number.isInteger(detail.customerId) || detail.customerId < 1) {
+      setDetailError('No se pudo identificar el cliente del pedido. No se enviaron cambios.');
+      return;
+    }
+    if (!detail.deliveryAddressId) {
+      setDetailError('No se pudo asociar la dirección guardada con la dirección del pedido. El backend debe devolver deliveryAddressId para permitir una edición segura.');
+      return;
+    }
+    setDetailError(null);
+    setEditItems(detail.items);
+    setEditingDetail(true);
+    setLoadingEditProducts(true);
+    try {
+      const result = await productsService.getProducts('', [], [], true);
+      setEditProducts(result.items);
+    } catch (error) {
+      setDetailError(parseApiError(error, 'No se pudo cargar el catálogo para agregar productos.').message);
+    } finally {
+      setLoadingEditProducts(false);
+    }
+  };
+
+  const addProductToEdit = (product: IProduct) => {
+    setEditItems(current => {
+      const existing = current.find(item => item.productId === Number(product.id));
+      if (existing) return current.map(item => item.productId === existing.productId ? { ...item, quantity: item.quantity + 1 } : item);
+      return [...current, { productId: Number(product.id), productName: product.name, unit: product.unit, quantity: 1, unitPrice: product.price }];
+    });
+  };
+
+  const saveOrderEdit = async () => {
+    if (!detailOrder || !detail?.deliveryAddressId) return;
+    if (!editItems.length || editItems.some(item => !Number.isInteger(item.quantity) || item.quantity < 1)) {
+      setDetailError('El pedido debe tener productos con cantidades mayores que cero.');
+      return;
+    }
+    setSavingEdit(true);
+    setDetailError(null);
+    try {
+      const updated = await salesService.updateOrder(detailOrder.id, {
+        customerId: detail.customerId,
+        deliveryAddressId: detail.deliveryAddressId,
+        ...(detailOrder.truckId ? { truckId: Number(detailOrder.truckId) } : {}),
+        ...(detail.deliveryDate ? { deliveryDate: detail.deliveryDate } : {}),
+        ...(detail.createdById ? { createdById: detail.createdById } : {}),
+        items: editItems.map(({ productId, quantity }) => ({ productId, quantity })),
+      });
+      const itemCount = editItems.reduce((sum, item) => sum + item.quantity, 0);
+      setOrders(current => current.map(order => order.id === detailOrder.id ? { ...order, itemCount, total: updated.total || order.total } : order));
+      setDetailOrder(current => current ? { ...current, itemCount, total: updated.total || current.total } : null);
+      setDetail({ ...detail, items: editItems });
+      setEditingDetail(false);
+      setSuccessMessage(`${detailOrder.code} actualizado correctamente.`);
+    } catch (error) {
+      setDetailError(parseApiError(error, 'No se pudo guardar la edición del pedido.').message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  useEffect(() => { if (canViewOrders && !isDriver) void loadClients(); }, [canViewOrders, isDriver, loadClients]);
+  useEffect(() => { if (canViewOrders && !isDriver) void loadTrucks(); }, [canViewOrders, isDriver, loadTrucks]);
+  useEffect(() => { if (canViewOrders && (isDriver || mode === 'history')) void loadOrders(); }, [canViewOrders, isDriver, mode, loadOrders]);
 
   const chooseClient = async (clientSummary: IClientSummary) => {
     setSelectedClient(clientSummary);
@@ -126,7 +267,7 @@ export default function OrdersScreen() {
     }
   };
 
-  const handleCreateOrder = async (loadMissingTruckStock = false) => {
+  const handleCreateOrder = async () => {
     if (!selectedClient) {
       setOrderError('Elegí un cliente para continuar.');
       return;
@@ -158,42 +299,72 @@ export default function OrdersScreen() {
     }
     setSubmitting(true);
     setOrderError(null);
-    setCanLoadTruckStock(false);
+    setSuccessMessage(null);
     try {
       const assignedTruck = trucks.find(truck => truck.id === selectedTruckId);
-      if (truckId && loadMissingTruckStock) {
-        const currentStock = await logisticsService.getTruckStock(String(truckId), deliveryDate);
-        for (const item of orderItems) {
-          const entries = currentStock.filter(stockItem => stockItem.productId === String(item.productId) && (!stockItem.deliveryDate || stockItem.deliveryDate === deliveryDate));
-          const available = entries.reduce((sum, stockItem) => sum + Math.max(0, stockItem.quantityLoaded - stockItem.quantityReturned), 0);
-          const missing = Math.max(0, item.quantity - available);
-          if (missing > 0) {
-            const existingEntry = entries[0];
-            if (existingEntry) {
-              await logisticsService.updateStock(existingEntry.id, { quantityLoaded: existingEntry.quantityLoaded + missing, quantityReturned: existingEntry.quantityReturned });
-            } else {
-              await logisticsService.loadProduct(String(truckId), { productId: item.productId, deliveryDate, quantityLoaded: missing });
-            }
-          }
-        }
-      }
       const created = await salesService.createOrder({ customerId, deliveryAddressId, items: orderItems, deliveryDate, ...(truckId ? { truckId } : {}) });
       clearCart();
       setSelectedClient(null);
       setAddresses([]);
       setSelectedAddress(null);
       setSelectedTruckId(null);
-      setCanLoadTruckStock(false);
-      Alert.alert('Pedido enviado', `${created.id ? `Se registró el pedido ${created.code}.` : 'El backend recibió el pedido.'}${assignedTruck ? ` Asignado a ${assignedTruck.licensePlate}.` : ' Quedó sin asignar a un camión.'}`);
+      setSuccessMessage(`${created.id ? `Pedido ${created.code} creado.` : 'Pedido creado.'}${assignedTruck ? ` Asignado a ${assignedTruck.licensePlate}.` : ' Sin camión asignado.'}`);
+      setMode('history');
     } catch (error) {
-      const message = parseApiError(error, 'No se pudo registrar el pedido. Tus productos siguen en el carrito; podés reintentar.').message;
-      const stockShortage = truckId && /insufficient stock in truck/i.test(message);
-      setCanLoadTruckStock(!!stockShortage);
-      setOrderError(stockShortage
-        ? 'El camión no tiene cargadas las unidades necesarias. Podés cargar las cantidades faltantes desde este pedido y volver a enviarlo; el pedido sigue guardado en el carrito.'
-        : message);
+      setOrderError(parseApiError(error, 'No se pudo registrar el pedido. Tus productos siguen en el carrito; podés reintentar.').message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const assignOrder = async (truck: Truck) => {
+    if (!assignmentOrder) return;
+    const truckId = Number(truck.id);
+    if (!Number.isInteger(truckId) || truckId < 1) {
+      setOrderError('El camión seleccionado no tiene un ID válido del servidor.');
+      return;
+    }
+    setSavingAssignment(true);
+    setOrderError(null);
+    setAssignmentError(null);
+    setSuccessMessage(null);
+    try {
+      // GET /orders/{id} currently returns the address snapshot but may omit
+      // deliveryAddressId, which the full PUT request requires. Resolve only
+      // an unambiguous match against the customer's saved addresses.
+      const rawOrder = await salesService.getOrder(assignmentOrder.id);
+      let addressId = Number(rawOrder.deliveryAddressId ?? rawOrder.addressId ?? rawOrder.deliveryAddress?.id ?? rawOrder.address?.id ?? rawOrder.shippingAddressId);
+      if (!Number.isInteger(addressId) || addressId < 1) {
+        const customer = rawOrder.customer ?? rawOrder.client ?? {};
+        const customerId = Number(rawOrder.customerId ?? rawOrder.clientId ?? customer.id ?? assignmentOrder.customerId);
+        const snapshot = String(rawOrder.deliveryAddressSnapshot ?? rawOrder.deliveryAddressDescription ?? rawOrder.addressSnapshot ?? '');
+        if (Number.isInteger(customerId) && customerId > 0 && snapshot) {
+          const addresses = await clientsService.getClientAddresses(String(customerId));
+          const normalizedSnapshot = normalizeText(snapshot);
+          const matches = addresses.filter(address => {
+            const street = normalizeText(address.street);
+            const city = normalizeText(address.city);
+            return street.length > 3 && normalizedSnapshot.includes(street) && (!city || normalizedSnapshot.includes(city));
+          });
+          if (matches.length === 1 && /^\d+$/.test(matches[0].id)) addressId = Number(matches[0].id);
+        }
+      }
+      if (!Number.isInteger(addressId) || addressId < 1) {
+        throw new Error('No se pudo asociar la dirección guardada con la dirección del pedido. El backend debe devolver deliveryAddressId o una dirección única para poder cambiar el camión de forma segura.');
+      }
+      await salesService.assignOrderToTruck(assignmentOrder.id, truckId, addressId);
+      setSuccessMessage(`${assignmentOrder.code} asignado a ${truck.licensePlate}.`);
+      setOrders(current => current.map(order => order.id === assignmentOrder.id ? {
+        ...order,
+        truckId: truck.id,
+        truckLicensePlate: truck.licensePlate,
+        truckDriverName: truck.driverName,
+      } : order));
+      setAssignmentOrder(null);
+    } catch (error) {
+      setAssignmentError(parseApiError(error, 'No se pudo asignar el pedido al camión.').message);
+    } finally {
+      setSavingAssignment(false);
     }
   };
 
@@ -214,9 +385,144 @@ export default function OrdersScreen() {
     }
   };
 
+  const openDeliveryConfirmation = (order: OrderListItem) => {
+    setDeliveryOrder(order);
+    setDeliveryChoice(null);
+    setDeliveryAmount('');
+    setDeliveryError(null);
+    setDeliveryAlreadyMarked(false);
+    setDeliveryStatusUnknown(false);
+  };
+
+  const closeDeliveryConfirmation = () => {
+    if (deliveryAlreadyMarked && deliveryChoice && deliveryChoice !== 'account' && deliveryOrder) {
+      const amount = deliveryChoice === 'full'
+        ? deliveryOrder.total
+        : Number(deliveryAmount.trim().replace(',', '.'));
+      setPendingDeliveryPayment({ order: deliveryOrder, choice: deliveryChoice, amount });
+    }
+    setDeliveryOrder(null);
+  };
+
+  const resumePendingDeliveryPayment = () => {
+    if (!pendingDeliveryPayment) return;
+    setDeliveryOrder(pendingDeliveryPayment.order);
+    setDeliveryChoice(pendingDeliveryPayment.choice);
+    setDeliveryAmount(pendingDeliveryPayment.choice === 'partial' ? String(pendingDeliveryPayment.amount) : '');
+    setDeliveryError(null);
+    setDeliveryAlreadyMarked(true);
+    setDeliveryStatusUnknown(false);
+  };
+
+  const confirmDelivery = async () => {
+    const order = deliveryOrder;
+    if (!order || !deliveryChoice) {
+      setDeliveryError('Elegí cómo se resolvió el pago para continuar.');
+      return;
+    }
+    const amount = deliveryChoice === 'full'
+      ? order.total
+      : deliveryChoice === 'partial'
+        ? Number(deliveryAmount.trim().replace(',', '.'))
+        : 0;
+    if (deliveryChoice !== 'account' && (!Number.isFinite(amount) || amount <= 0)) {
+      setDeliveryError('El total del pedido no es válido para registrar un pago. Revisá el detalle antes de confirmar la entrega.');
+      return;
+    }
+    if (deliveryChoice === 'partial' && (!Number.isFinite(amount) || amount <= 0 || amount >= order.total)) {
+      setDeliveryError(`Ingresá un pago mayor que cero y menor que el total (${money(order.total)}).`);
+      return;
+    }
+
+    setDeliverySubmitting(true);
+    setDeliveryError(null);
+    let delivered = deliveryAlreadyMarked;
+    try {
+      if (!delivered && deliveryStatusUnknown) {
+        let latest: Record<string, any>;
+        try {
+          latest = await salesService.getOrder(order.id);
+        } catch {
+          throw new Error('No se pudo verificar si el servidor guardó la entrega. Actualizá la conexión y reintentá; todavía no se volvió a enviar el cambio.');
+        }
+        const status = String(latest.status ?? '').toUpperCase();
+        if (status === 'DELIVERED') {
+          delivered = true;
+          setDeliveryAlreadyMarked(true);
+          setDeliveryStatusUnknown(false);
+        } else if (status === 'IN_ROUTE') {
+          setDeliveryStatusUnknown(false);
+        } else {
+          throw new Error(`El pedido ahora figura como ${status || 'estado desconocido'}; no se reenvió la entrega. Actualizá el historial antes de continuar.`);
+        }
+      }
+      if (!delivered) {
+        try {
+          await salesService.markDelivered(order.id);
+        } catch (requestError) {
+          let latest: Record<string, any>;
+          try {
+            latest = await salesService.getOrder(order.id);
+          } catch {
+            setDeliveryStatusUnknown(true);
+            throw requestError;
+          }
+          if (String(latest.status ?? '').toUpperCase() !== 'DELIVERED') {
+            setDeliveryStatusUnknown(true);
+            throw requestError;
+          }
+        }
+        delivered = true;
+        setDeliveryAlreadyMarked(true);
+        setDeliveryStatusUnknown(false);
+      }
+
+      if (deliveryChoice !== 'account') {
+        let customerId = order.customerId;
+        if (!customerId) {
+          const raw = await salesService.getOrder(order.id);
+          const customer = raw.customer ?? raw.client ?? {};
+          customerId = String(raw.customerId ?? raw.clientId ?? customer.id ?? '');
+        }
+        if (!/^\d+$/.test(customerId ?? '') || Number(customerId) < 1) {
+          throw new Error('El pedido ya figura entregado, pero no se pudo identificar al cliente para cargar el pago. Revisá el detalle del pedido antes de volver a intentarlo.');
+        }
+        await ledgerService.registerPayment(customerId, amount);
+      }
+
+      const paidLabel = deliveryChoice === 'account'
+        ? 'Quedó en cuenta corriente.'
+        : deliveryChoice === 'full'
+          ? `Se registró el pago completo de ${money(amount)}.`
+          : `Se registró ${money(amount)}; el saldo de ${money(order.total - amount)} quedó en cuenta corriente.`;
+      setSuccessMessage(`${order.code} entregado. ${paidLabel}`);
+      setDeliveryOrder(null);
+      setDeliveryAlreadyMarked(false);
+      setDeliveryStatusUnknown(false);
+      setPendingDeliveryPayment(null);
+      await loadOrders();
+    } catch (error) {
+      if (delivered) {
+        setDeliveryAlreadyMarked(true);
+        if (deliveryChoice !== 'account') setPendingDeliveryPayment({ order, choice: deliveryChoice, amount });
+        setDeliveryError(`El pedido ya quedó entregado, pero no se pudo registrar el pago. Podés reintentar el pago sin volver a confirmar la entrega. Si el error fue de conexión, revisá la cuenta corriente antes de reintentar para evitar duplicarlo. ${parseApiError(error, 'Error al registrar el pago.').message}`);
+        void loadOrders();
+      } else {
+        setDeliveryError(`${deliveryStatusUnknown ? 'No se pudo confirmar si el servidor registró la entrega. El reintento verificará el estado antes de volver a enviarla. ' : ''}${parseApiError(error, 'No se pudo confirmar la entrega.').message}`);
+      }
+    } finally {
+      setDeliverySubmitting(false);
+    }
+  };
+
   const openCatalog = () => router.push('/(tabs)/catalog' as any);
 
-  const renderOrder = (order: OrderListItem) => (
+  const renderOrder = (order: OrderListItem) => {
+    const truck = trucks.find(item => String(item.id) === order.truckId);
+    const assignedTruckName = order.truckLicensePlate ?? truck?.licensePlate ?? (order.truckId ? `Camión #${order.truckId}` : 'Sin camión asignado');
+    const driverName = order.truckDriverName ?? truck?.driverName;
+    const canAssignTruck = canAssignOrdersToTruck && (order.status === 'PENDING' || order.status === 'IN_ROUTE');
+    return (
     <View key={order.id || order.code} style={styles.orderCard}>
       <View style={styles.orderTop}>
         <View style={styles.orderTitleWrap}>
@@ -234,17 +540,35 @@ export default function OrdersScreen() {
         {!!order.createdAt && <Text style={styles.orderMetaText}>{new Date(order.createdAt).toLocaleDateString('es-AR')}</Text>}
         <Text style={styles.orderTotal}>{money(order.total)}</Text>
       </View>
+      <View style={styles.orderTruckRow}>
+        <Ionicons name="bus-outline" size={16} color={colors.primary} />
+        <Text style={styles.orderTruckText}>{assignedTruckName}</Text>
+        {!!driverName && <Text style={styles.orderTruckDriver}>· {driverName}</Text>}
+      </View>
+      {canAssignTruck && <View style={styles.truckAssignmentRow}>
+        <Text style={styles.assignmentHint}>{order.truckId ? '¿Necesitás cambiar la unidad?' : '¿Quién lo va a repartir?'}</Text>
+          <TouchableOpacity style={styles.assignmentButton} onPress={() => { setOrderError(null); setAssignmentError(null); setAssignmentOrder(order); }}>
+          <Ionicons name={order.truckId ? 'swap-horizontal-outline' : 'bus-outline'} size={15} color={colors.primary} />
+          <Text style={styles.assignmentButtonText}>{order.truckId ? 'Cambiar camión' : 'Asignar camión'}</Text>
+        </TouchableOpacity>
+      </View>}
+      <TouchableOpacity style={styles.detailsAction} onPress={() => void openOrderDetails(order)}>
+        <Ionicons name="reader-outline" size={16} color={colors.primary} />
+        <Text style={styles.detailsActionText}>Ver productos y detalles</Text>
+        <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+      </TouchableOpacity>
       {(order.status === 'PENDING' || order.status === 'IN_ROUTE') && (
         <View style={styles.orderActions}>
           {order.status === 'PENDING' && <TouchableOpacity style={styles.secondaryAction} onPress={() => void updateStatus(order, 'route')} disabled={updatingOrderId === order.id}><Text style={styles.secondaryActionText}>{updatingOrderId === order.id ? 'Actualizando…' : 'Pasar a reparto'}</Text></TouchableOpacity>}
-          {order.status === 'IN_ROUTE' && <TouchableOpacity style={styles.secondaryAction} onPress={() => void updateStatus(order, 'deliver')} disabled={updatingOrderId === order.id}><Text style={styles.secondaryActionText}>{updatingOrderId === order.id ? 'Actualizando…' : 'Marcar entregado'}</Text></TouchableOpacity>}
-          <TouchableOpacity style={styles.cancelAction} onPress={() => setCancelConfirmOrder(order)} disabled={updatingOrderId === order.id}>
+          {order.status === 'IN_ROUTE' && <TouchableOpacity style={styles.secondaryAction} onPress={() => isDriver ? openDeliveryConfirmation(order) : void updateStatus(order, 'deliver')} disabled={updatingOrderId === order.id}><Text style={styles.secondaryActionText}>{updatingOrderId === order.id ? 'Actualizando…' : isDriver ? 'Registrar entrega y cobro' : 'Marcar entregado'}</Text></TouchableOpacity>}
+          {!isDriver && <TouchableOpacity style={styles.cancelAction} onPress={() => setCancelConfirmOrder(order)} disabled={updatingOrderId === order.id}>
             <Text style={styles.cancelActionText}>{updatingOrderId === order.id ? 'Actualizando…' : 'Cancelar'}</Text>
-          </TouchableOpacity>
+          </TouchableOpacity>}
         </View>
       )}
     </View>
-  );
+    );
+  };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
@@ -271,12 +595,14 @@ export default function OrdersScreen() {
             <View><Text style={styles.sectionTitle}>Actividad reciente</Text><Text style={styles.sectionHint}>Seguimiento de pedidos del backend</Text></View>
             <TouchableOpacity onPress={() => void loadOrders()} style={styles.refreshButton} accessibilityLabel="Actualizar pedidos"><Ionicons name="refresh" size={19} color={colors.primary} /></TouchableOpacity>
           </View>
+          {!!successMessage && <View style={styles.successBanner}><Ionicons name="checkmark-circle" size={20} color={colors.success} /><Text style={styles.successBannerText}>{successMessage}</Text><TouchableOpacity onPress={() => setSuccessMessage(null)} accessibilityLabel="Cerrar confirmación"><Ionicons name="close" size={18} color={colors.success} /></TouchableOpacity></View>}
+          {!!pendingDeliveryPayment && !deliveryOrder && <View style={styles.deliveryErrorBox}><Ionicons name="alert-circle-outline" size={18} color={colors.error} /><Text style={styles.deliveryErrorText}>{pendingDeliveryPayment.order.code} se entregó, pero queda un pago por registrar. Verificá antes la cuenta corriente si hubo un corte de conexión.</Text><TouchableOpacity onPress={resumePendingDeliveryPayment}><Text style={styles.assignmentRetry}>Reintentar pago</Text></TouchableOpacity></View>}
           {!!orderError && <FormErrorBanner message={orderError} onRetry={loadOrders} />}
           {loadingOrders ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : orders.length ? orders.map(renderOrder) : <View style={styles.emptyCard}><Ionicons name="file-tray-outline" size={28} color={colors.textSecondary} /><Text style={styles.emptyTitle}>Todavía no hay pedidos</Text><Text style={styles.emptyText}>Cuando registres uno, aparecerá acá.</Text></View>}
         </View>
       ) : (
         <>
-          {!!orderError && <FormErrorBanner message={orderError} onRetry={() => void handleCreateOrder(canLoadTruckStock)} retryLabel={canLoadTruckStock ? 'Cargar faltantes y reintentar' : 'Reintentar'} disabled={submitting} />}
+          {!!orderError && <FormErrorBanner message={orderError} onRetry={() => void handleCreateOrder()} disabled={submitting} />}
           {!!loadError && <FormErrorBanner message={loadError} onRetry={loadClients} />}
           <View style={styles.section}>
             <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>1. Cliente</Text><Text style={styles.sectionHint}>Seleccioná quién recibe el pedido</Text></View></View>
@@ -315,19 +641,18 @@ export default function OrdersScreen() {
           </View>
 
           <View style={styles.section}>
-            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>4. Entrega y camión</Text><Text style={styles.sectionHint}>El camión debe tener cargadas las unidades del pedido</Text></View><TouchableOpacity onPress={() => void loadTrucks()} disabled={loadingTrucks} accessibilityLabel="Actualizar camiones"><Ionicons name="refresh-outline" size={18} color={colors.primary} /></TouchableOpacity></View>
+            <View style={styles.sectionHeading}><View><Text style={styles.sectionTitle}>4. Entrega y camión</Text><Text style={styles.sectionHint}>Asigná el pedido a un camión y a su chofer</Text></View><TouchableOpacity onPress={() => void loadTrucks()} disabled={loadingTrucks} accessibilityLabel="Actualizar camiones"><Ionicons name="refresh-outline" size={18} color={colors.primary} /></TouchableOpacity></View>
             <Text style={styles.dateLabel}>Fecha de entrega</Text>
-            <TextInput value={deliveryDate} onChangeText={value => { setDeliveryDate(value); setOrderError(null); setCanLoadTruckStock(false); }} style={styles.deliveryDateInput} placeholder="AAAA-MM-DD" maxLength={10} editable={!submitting} />
-            <Text style={styles.sectionHint}>La carga faltante se puede registrar desde el pedido si el backend la solicita.</Text>
+            <TextInput value={deliveryDate} onChangeText={value => { setDeliveryDate(value); setOrderError(null); }} style={styles.deliveryDateInput} placeholder="AAAA-MM-DD" maxLength={10} editable={!submitting} />
             <Text style={styles.truckLabel}>Camión <Text style={styles.optionalLabel}>(opcional)</Text></Text>
             {!!truckError && <FormErrorBanner message={truckError} onRetry={loadTrucks} />}
             {loadingTrucks ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : trucks.length ? (
               <View style={styles.truckChoices}>
-                <TouchableOpacity style={[styles.truckChoice, selectedTruckId === null && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(null); setOrderError(null); setCanLoadTruckStock(false); }} disabled={submitting}>
+                <TouchableOpacity style={[styles.truckChoice, selectedTruckId === null && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(null); setOrderError(null); }} disabled={submitting}>
                   <Ionicons name={selectedTruckId === null ? 'radio-button-on' : 'radio-button-off'} size={18} color={selectedTruckId === null ? colors.primary : colors.textSecondary} />
                   <Text style={[styles.truckChoiceText, selectedTruckId === null && styles.truckChoiceTextActive]}>Sin asignar</Text>
                 </TouchableOpacity>
-                {trucks.map(truck => <TouchableOpacity key={truck.id} style={[styles.truckChoice, selectedTruckId === truck.id && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(truck.id); setOrderError(null); setCanLoadTruckStock(false); }} disabled={submitting}>
+                {trucks.map(truck => <TouchableOpacity key={truck.id} style={[styles.truckChoice, selectedTruckId === truck.id && styles.truckChoiceActive]} onPress={() => { setSelectedTruckId(truck.id); setOrderError(null); }} disabled={submitting}>
                   <Ionicons name={selectedTruckId === truck.id ? 'radio-button-on' : 'radio-button-off'} size={18} color={selectedTruckId === truck.id ? colors.primary : colors.textSecondary} />
                   <View style={styles.truckChoiceInfo}><Text style={[styles.truckChoiceText, selectedTruckId === truck.id && styles.truckChoiceTextActive]}>{truck.licensePlate}</Text><Text style={styles.truckDriver}>{truck.driverName ?? (truck.driverId ? `Chofer ID ${truck.driverId}` : 'Sin chofer asignado')}</Text></View>
                 </TouchableOpacity>)}
@@ -344,6 +669,131 @@ export default function OrdersScreen() {
           </View>
         </>
       )}
+      <Modal
+        visible={!!assignmentOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !savingAssignment && setAssignmentOrder(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.assignmentModal}>
+            <View style={styles.assignmentModalHeader}>
+              <View style={styles.assignmentModalIcon}><Ionicons name="bus-outline" size={22} color={colors.primary} /></View>
+              <View style={styles.assignmentModalTitleWrap}><Text style={styles.assignmentModalTitle}>{assignmentOrder?.truckId ? 'Cambiar camión' : 'Asignar camión'}</Text><Text style={styles.assignmentModalHint}>{assignmentOrder?.code} · {assignmentOrder?.customerName}</Text></View>
+              <TouchableOpacity onPress={() => setAssignmentOrder(null)} disabled={savingAssignment} accessibilityLabel="Cerrar"><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+            </View>
+            <Text style={styles.assignmentModalDescription}>Elegí la unidad y el chofer que van a realizar esta entrega.</Text>
+            {!!assignmentError && <Text style={styles.assignmentErrorText}>{assignmentError}</Text>}
+            {!!truckError && <FormErrorBanner message={truckError} onRetry={loadTrucks} disabled={loadingTrucks} />}
+            {loadingTrucks ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : trucks.length ? <ScrollView style={styles.assignmentTruckList} keyboardShouldPersistTaps="handled">{trucks.map(truck => {
+              const selected = assignmentOrder?.truckId === truck.id;
+              return <TouchableOpacity key={truck.id} style={[styles.assignmentTruckOption, selected && styles.assignmentTruckSelected]} onPress={() => void assignOrder(truck)} disabled={savingAssignment}>
+                <View style={[styles.assignmentTruckIcon, selected && styles.assignmentTruckIconSelected]}><Ionicons name="bus" size={19} color={selected ? colors.textInverse : colors.primary} /></View>
+                <View style={styles.assignmentTruckInfo}><Text style={styles.assignmentTruckPlate}>{truck.licensePlate || `Camión #${truck.id}`}</Text><Text style={styles.assignmentTruckDriver}>{truck.driverName ?? (truck.driverId ? `Chofer ID ${truck.driverId}` : 'Sin chofer asignado')}</Text></View>
+                {savingAssignment ? <ActivityIndicator size="small" color={colors.primary} /> : <Ionicons name={selected ? 'checkmark-circle' : 'chevron-forward'} size={20} color={selected ? colors.success : colors.textSecondary} />}
+              </TouchableOpacity>;
+            })}</ScrollView> : !truckError ? <View style={styles.noTrucksCard}><Ionicons name="bus-outline" size={23} color={colors.textSecondary} /><Text style={styles.emptyText}>No hay camiones activos disponibles.</Text><TouchableOpacity onPress={() => void loadTrucks()}><Text style={styles.assignmentRetry}>Volver a cargar</Text></TouchableOpacity></View> : null}
+            <TouchableOpacity style={styles.assignmentCloseButton} onPress={() => setAssignmentOrder(null)} disabled={savingAssignment}><Text style={styles.assignmentCloseText}>Volver al historial</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={!!detailOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !savingEdit && setDetailOrder(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.detailsModal}>
+            <View style={styles.detailsHeader}>
+              <View style={styles.assignmentModalIcon}><Ionicons name="receipt-outline" size={21} color={colors.primary} /></View>
+              <View style={styles.assignmentModalTitleWrap}><Text style={styles.assignmentModalTitle}>{detailOrder?.code ?? 'Pedido'}</Text><Text style={styles.assignmentModalHint}>{detailOrder?.customerName}</Text></View>
+              <TouchableOpacity onPress={() => setDetailOrder(null)} disabled={savingEdit} accessibilityLabel="Cerrar detalle"><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+            </View>
+            {!!detailError && <Text style={styles.assignmentErrorText}>{detailError}</Text>}
+            {detailLoading ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : detail ? <ScrollView style={styles.detailsScroll} keyboardShouldPersistTaps="handled">
+              <View style={styles.detailInfoGrid}>
+                <View style={styles.detailInfoCell}><Text style={styles.detailLabel}>Estado</Text><Text style={styles.detailValue}>{statusCopy[detailOrder?.status ?? ''] ?? detailOrder?.status}</Text></View>
+                <View style={styles.detailInfoCell}><Text style={styles.detailLabel}>Fecha</Text><Text style={styles.detailValue}>{detail.deliveryDate || (detailOrder?.createdAt ? new Date(detailOrder.createdAt).toLocaleDateString('es-AR') : '—')}</Text></View>
+                <View style={styles.detailInfoCell}><Text style={styles.detailLabel}>Entrega</Text><Text style={styles.detailValue}>{detail.deliveryAddressSnapshot || 'Dirección registrada'}</Text></View>
+                <View style={styles.detailInfoCell}><Text style={styles.detailLabel}>Camión</Text><Text style={styles.detailValue}>{detailOrder?.truckLicensePlate ?? (detailOrder?.truckId ? `Camión #${detailOrder.truckId}` : 'Sin asignar')}</Text></View>
+              </View>
+              <View style={styles.detailItemsHeading}><View><Text style={styles.detailItemsTitle}>{editingDetail ? 'Editar productos' : 'Productos del pedido'}</Text><Text style={styles.detailItemsHint}>{editingDetail ? 'Ajustá las cantidades o agregá productos' : `${detail.items.length} productos · ${detail.items.reduce((sum, item) => sum + item.quantity, 0)} unidades`}</Text></View></View>
+              {(editingDetail ? editItems : detail.items).map(item => <View key={item.productId} style={styles.detailProductRow}>
+                <View style={styles.detailProductIcon}><Ionicons name="cube-outline" size={17} color={colors.primary} /></View>
+                <View style={styles.detailProductInfo}><Text style={styles.detailProductName}>{item.productName}</Text><Text style={styles.detailProductPrice}>{money(item.unitPrice)} · {item.unit}</Text><Text style={styles.detailProductSubtotal}>{money(item.unitPrice * item.quantity)}</Text></View>
+                {editingDetail ? <View style={styles.editProductControls}>
+                  <TouchableOpacity style={styles.counterButton} onPress={() => setEditItems(current => current.map(currentItem => currentItem.productId === item.productId ? { ...currentItem, quantity: Math.max(1, currentItem.quantity - 1) } : currentItem))}><Ionicons name="remove" size={17} color={colors.primary} /></TouchableOpacity>
+                  <Text style={styles.quantity}>{item.quantity}</Text>
+                  <TouchableOpacity style={styles.counterButton} onPress={() => setEditItems(current => current.map(currentItem => currentItem.productId === item.productId ? { ...currentItem, quantity: currentItem.quantity + 1 } : currentItem))}><Ionicons name="add" size={17} color={colors.primary} /></TouchableOpacity>
+                  <TouchableOpacity style={styles.removeEditProduct} onPress={() => setEditItems(current => current.filter(currentItem => currentItem.productId !== item.productId))}><Ionicons name="trash-outline" size={17} color={colors.error} /></TouchableOpacity>
+                </View> : <Text style={styles.detailProductQuantity}>× {item.quantity}</Text>}
+              </View>)}
+              {!detail.items.length && !editingDetail && <Text style={styles.emptyText}>El pedido no tiene productos detallados en la respuesta.</Text>}
+              {editingDetail && <View style={styles.addEditProductsSection}>
+                <Text style={styles.detailItemsTitle}>Agregar del catálogo</Text>
+                {loadingEditProducts ? <ActivityIndicator color={colors.primary} style={styles.loader} /> : editProducts.map(product => <TouchableOpacity key={product.id} style={styles.catalogProductOption} onPress={() => addProductToEdit(product)}>
+                  <View style={styles.catalogProductInfo}><Text style={styles.detailProductName}>{product.name}</Text><Text style={styles.detailProductPrice}>{money(product.price)} · {product.unit}</Text></View><Ionicons name="add-circle-outline" size={21} color={colors.primary} />
+                </TouchableOpacity>)}
+              </View>}
+              <View style={styles.detailTotalRow}><Text style={styles.detailTotalLabel}>Total informado</Text><Text style={styles.detailTotalAmount}>{money(detailOrder?.total ?? 0)}</Text></View>
+            </ScrollView> : null}
+            {detail && detailOrder?.status === 'PENDING' && !isDriver && <View style={styles.detailFooter}>
+              {editingDetail ? <>
+                <TouchableOpacity style={styles.confirmBack} onPress={() => { setEditingDetail(false); setDetailError(null); }} disabled={savingEdit}><Text style={styles.confirmBackText}>Cancelar</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.deliveryConfirmButton} onPress={() => void saveOrderEdit()} disabled={savingEdit}>{savingEdit ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.deliveryConfirmText}>Guardar cambios</Text>}</TouchableOpacity>
+              </> : <TouchableOpacity style={styles.deliveryConfirmButton} onPress={() => void startOrderEdit()}><Ionicons name="create-outline" size={18} color={colors.textInverse} /><Text style={styles.deliveryConfirmText}>Editar pedido</Text></TouchableOpacity>}
+            </View>}
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={!!deliveryOrder}
+        transparent
+        animationType="slide"
+        onRequestClose={() => !deliverySubmitting && closeDeliveryConfirmation()}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.deliveryModal}>
+            <View style={styles.deliveryHeader}>
+              <View style={styles.assignmentModalIcon}><Ionicons name="checkmark-done-outline" size={22} color={colors.primary} /></View>
+              <View style={styles.assignmentModalTitleWrap}>
+                <Text style={styles.assignmentModalTitle}>{deliveryAlreadyMarked ? 'Entrega registrada' : 'Confirmar entrega'}</Text>
+                <Text style={styles.assignmentModalHint}>{deliveryOrder?.code} · {deliveryOrder?.customerName}</Text>
+              </View>
+              <TouchableOpacity onPress={closeDeliveryConfirmation} disabled={deliverySubmitting} accessibilityLabel="Cerrar entrega"><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.deliveryBody}>
+              <View style={styles.deliveryTotalRow}><Text style={styles.deliveryTotalLabel}>Total del pedido</Text><Text style={styles.deliveryTotalValue}>{money(deliveryOrder?.total ?? 0)}</Text></View>
+              <Text style={styles.deliveryPrompt}>{deliveryAlreadyMarked ? 'La entrega se guardó. Reintentá únicamente el pago pendiente.' : '¿Cómo se resolvió el pago de este pedido?'}</Text>
+              {([
+                ['full', 'Pagó completo', `Registrar ${money(deliveryOrder?.total ?? 0)} como pago`],
+                ['account', 'Cuenta corriente', 'Dejar el total pendiente en la cuenta del cliente'],
+                ['partial', 'Pago parcial', 'Registrar un importe y dejar el saldo pendiente'],
+              ] as [DeliveryPaymentChoice, string, string][]).map(([choice, title, subtitle]) => {
+                const selected = deliveryChoice === choice;
+                return <TouchableOpacity key={choice} style={[styles.deliveryChoice, selected && styles.deliveryChoiceSelected, deliveryAlreadyMarked && styles.deliveryChoiceDisabled]} onPress={() => { setDeliveryChoice(choice); setDeliveryError(null); }} disabled={deliverySubmitting || deliveryAlreadyMarked} accessibilityRole="radio" accessibilityState={{ selected }}>
+                  <Ionicons name={selected ? 'radio-button-on' : 'radio-button-off'} size={20} color={selected ? colors.primary : colors.textSecondary} />
+                  <View style={styles.deliveryChoiceCopy}><Text style={styles.deliveryChoiceTitle}>{title}</Text><Text style={styles.deliveryChoiceSubtitle}>{subtitle}</Text></View>
+                </TouchableOpacity>;
+              })}
+              {deliveryChoice === 'partial' && <View style={styles.deliveryAmountField}>
+                <Text style={styles.deliveryAmountLabel}>Importe recibido</Text>
+                <TextInput value={deliveryAmount} onChangeText={value => { setDeliveryAmount(value); setDeliveryError(null); }} style={styles.deliveryAmountInput} placeholder="$ 0" keyboardType="decimal-pad" editable={!deliverySubmitting && !deliveryAlreadyMarked} />
+                {!!deliveryOrder && <Text style={styles.deliveryAmountHint}>Quedarán {money(Math.max(0, deliveryOrder.total - (Number(deliveryAmount.replace(',', '.')) || 0)))} en cuenta corriente.</Text>}
+              </View>}
+              {!!deliveryError && <View style={styles.deliveryErrorBox}><Ionicons name="alert-circle-outline" size={18} color={colors.error} /><Text style={styles.deliveryErrorText}>{deliveryError}</Text></View>}
+              <Text style={styles.deliveryFootnote}>{deliveryChoice === 'account' ? 'El importe total queda pendiente en la cuenta corriente del cliente.' : deliveryChoice ? 'El pago se registra en la cuenta corriente del cliente. Por ahora el backend guarda el importe, pero no el medio de pago.' : 'Elegí una opción para ver cómo se reflejará el pago en la cuenta corriente.'}</Text>
+              <View style={styles.deliveryActions}>
+                <TouchableOpacity style={styles.deliveryCancelButton} onPress={closeDeliveryConfirmation} disabled={deliverySubmitting}><Text style={styles.deliveryCancelText}>Volver</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.deliveryConfirmButton, (!deliveryChoice || deliverySubmitting) && styles.deliveryConfirmDisabled]} onPress={() => void confirmDelivery()} disabled={!deliveryChoice || deliverySubmitting}>
+                  {deliverySubmitting ? <ActivityIndicator color={colors.textInverse} /> : <Text style={styles.deliveryConfirmText}>{deliveryAlreadyMarked ? 'Reintentar pago' : 'Confirmar entrega'}</Text>}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       <Modal
         visible={!!cancelConfirmOrder}
         transparent
@@ -386,6 +836,8 @@ const styles = StyleSheet.create({
   sectionHeading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { ...typography.body, fontWeight: '700', color: colors.textPrimary },
   sectionHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  successBanner: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: colors.success, borderRadius: radius.md, backgroundColor: colors.successLight },
+  successBannerText: { ...typography.caption, color: colors.textPrimary, flex: 1, fontWeight: '600' },
   addProductsButton: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderRadius: radius.full, backgroundColor: colors.primaryLight },
   addProductsText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
   chips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -448,6 +900,15 @@ const styles = StyleSheet.create({
   statusCancelledText: { color: colors.error },
   orderMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
   orderMetaText: { ...typography.caption, color: colors.textSecondary },
+  orderTruckRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  orderTruckText: { ...typography.caption, color: colors.textPrimary, fontWeight: '700' },
+  orderTruckDriver: { ...typography.caption, color: colors.textSecondary, flexShrink: 1 },
+  truckAssignmentRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, marginTop: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  assignmentHint: { ...typography.caption, color: colors.textSecondary, flex: 1 },
+  assignmentButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.xs, minHeight: 38, paddingHorizontal: spacing.md, borderWidth: 1, borderColor: colors.primary, borderRadius: radius.sm, backgroundColor: colors.primaryLight },
+  assignmentButtonText: { ...typography.caption, color: colors.primary, fontWeight: '700' },
+  detailsAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.sm, marginTop: spacing.sm },
+  detailsActionText: { ...typography.caption, color: colors.primary, fontWeight: '700', flex: 1 },
   orderTotal: { ...typography.label, color: colors.primary, fontWeight: '800', marginLeft: 'auto' },
   orderActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
   secondaryAction: { backgroundColor: colors.primaryLight, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
@@ -455,6 +916,78 @@ const styles = StyleSheet.create({
   cancelAction: { paddingHorizontal: spacing.sm, paddingVertical: spacing.sm },
   cancelActionText: { ...typography.caption, color: colors.error, fontWeight: '600' },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(20, 12, 10, 0.48)', justifyContent: 'center', alignItems: 'center', padding: spacing.xl },
+  deliveryModal: { width: '100%', maxWidth: 460, maxHeight: '88%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  deliveryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },
+  deliveryBody: { paddingTop: spacing.md, paddingBottom: spacing.xs },
+  deliveryTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.primaryLight },
+  deliveryTotalLabel: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+  deliveryTotalValue: { ...typography.subheading, color: colors.primary, fontWeight: '800' },
+  deliveryPrompt: { ...typography.label, color: colors.textPrimary, marginTop: spacing.lg, marginBottom: spacing.sm },
+  deliveryChoice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.md, marginBottom: spacing.sm, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  deliveryChoiceSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
+  deliveryChoiceDisabled: { opacity: 0.65 },
+  deliveryChoiceCopy: { flex: 1 },
+  deliveryChoiceTitle: { ...typography.label, color: colors.textPrimary },
+  deliveryChoiceSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  deliveryAmountField: { marginTop: spacing.sm, marginBottom: spacing.sm },
+  deliveryAmountLabel: { ...typography.caption, color: colors.textPrimary, fontWeight: '700', marginBottom: spacing.xs },
+  deliveryAmountInput: { ...typography.body, color: colors.textPrimary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.background, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md },
+  deliveryAmountHint: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  deliveryErrorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs, padding: spacing.sm, marginTop: spacing.sm, borderRadius: radius.sm, backgroundColor: colors.errorLight },
+  deliveryErrorText: { ...typography.caption, color: colors.error, flex: 1, lineHeight: 18 },
+  deliveryFootnote: { ...typography.caption, color: colors.textSecondary, lineHeight: 18, marginTop: spacing.sm },
+  deliveryActions: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg },
+  deliveryCancelButton: { flex: 1, paddingVertical: spacing.md, alignItems: 'center', borderRadius: radius.md, backgroundColor: colors.background },
+  deliveryCancelText: { ...typography.label, color: colors.textSecondary },
+  deliveryConfirmButton: { flex: 1.4, paddingVertical: spacing.md, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, backgroundColor: colors.primary },
+  deliveryConfirmDisabled: { opacity: 0.55 },
+  deliveryConfirmText: { ...typography.label, color: colors.textInverse },
+  assignmentModal: { width: '100%', maxWidth: 460, maxHeight: '82%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  detailsModal: { width: '100%', maxWidth: 520, maxHeight: '90%', backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  detailsHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
+  detailsScroll: { flexGrow: 0 },
+  detailInfoGrid: { gap: spacing.sm, padding: spacing.md, marginBottom: spacing.md, borderRadius: radius.md, backgroundColor: colors.background },
+  detailInfoCell: { gap: 2 },
+  detailLabel: { ...typography.caption, color: colors.textSecondary, fontSize: 11 },
+  detailValue: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
+  detailItemsHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
+  detailItemsTitle: { ...typography.label, color: colors.textPrimary, fontWeight: '700' },
+  detailItemsHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  detailProductRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, padding: spacing.sm, marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  detailProductIcon: { width: 34, height: 34, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight },
+  detailProductInfo: { flex: 1 },
+  detailProductName: { ...typography.caption, color: colors.textPrimary, fontWeight: '700' },
+  detailProductPrice: { ...typography.caption, color: colors.textSecondary, marginTop: 2, fontSize: 11 },
+  detailProductSubtotal: { ...typography.caption, color: colors.primary, marginTop: 2, fontWeight: '700' },
+  detailProductQuantity: { ...typography.label, color: colors.textPrimary, fontWeight: '700' },
+  editProductControls: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  removeEditProduct: { padding: spacing.xs, marginLeft: spacing.xs },
+  addEditProductsSection: { padding: spacing.sm, marginTop: spacing.sm, borderRadius: radius.md, backgroundColor: colors.background },
+  catalogProductOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderColor: colors.border },
+  catalogProductInfo: { flex: 1 },
+  detailTotalRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: spacing.md, marginTop: spacing.md, borderTopWidth: 1, borderColor: colors.border },
+  detailTotalLabel: { ...typography.caption, color: colors.textSecondary, fontWeight: '700' },
+  detailTotalAmount: { ...typography.subheading, color: colors.primary, fontWeight: '800' },
+  detailFooter: { flexDirection: 'row', gap: spacing.sm, paddingTop: spacing.md, marginTop: spacing.sm },
+  assignmentModalHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  assignmentModalIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
+  assignmentModalTitleWrap: { flex: 1 },
+  assignmentModalTitle: { ...typography.subheading, color: colors.textPrimary },
+  assignmentModalHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  assignmentModalDescription: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.md, marginBottom: spacing.sm, lineHeight: 19 },
+  assignmentErrorText: { ...typography.caption, color: colors.error, padding: spacing.sm, marginBottom: spacing.sm, backgroundColor: colors.errorLight, borderRadius: radius.sm },
+  assignmentTruckList: { flexGrow: 0, maxHeight: 380 },
+  assignmentTruckOption: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 66, padding: spacing.sm, marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface },
+  assignmentTruckSelected: { borderColor: colors.success, backgroundColor: colors.successLight },
+  assignmentTruckIcon: { width: 38, height: 38, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight },
+  assignmentTruckIconSelected: { backgroundColor: colors.success },
+  assignmentTruckInfo: { flex: 1 },
+  assignmentTruckPlate: { ...typography.label, color: colors.textPrimary, fontWeight: '700' },
+  assignmentTruckDriver: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  noTrucksCard: { alignItems: 'center', gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, backgroundColor: colors.background },
+  assignmentRetry: { ...typography.caption, color: colors.primary, fontWeight: '700', padding: spacing.xs },
+  assignmentCloseButton: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.xs },
+  assignmentCloseText: { ...typography.label, color: colors.textSecondary },
   confirmCard: { width: '100%', maxWidth: 380, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center' },
   confirmIcon: { width: 52, height: 52, borderRadius: radius.full, backgroundColor: colors.errorLight, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   confirmTitle: { ...typography.heading, color: colors.textPrimary, textAlign: 'center' },

@@ -81,6 +81,7 @@ export interface IClientSummary {
 
 export interface IClientDetail extends IClient {
   orderHistory: IOrder[];
+  orderHistoryError?: string;
   lastOrderDate?: string; // ISO 8601
   notes?: string;
 }
@@ -129,6 +130,9 @@ export interface IOrder {
   createdBy: string;
   createdAt: string; // ISO 8601
   receiptUrl?: string;
+  truckId?: string;
+  truckLicensePlate?: string;
+  truckDriverName?: string;
 }
 
 // ─── Stock ───────────────────────────────────────────────────────────────────

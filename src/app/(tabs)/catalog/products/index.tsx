@@ -29,7 +29,9 @@ const normalize = (text: string) =>
 export default function ProductManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { categories } = useCategories();
+  const { canManageProducts, canViewCatalog } = usePermissions();
+  useEffect(() => { if (!canViewCatalog) router.replace('/(tabs)/orders' as any); }, [canViewCatalog, router]);
+  const { categories } = useCategories(canViewCatalog);
   const [products, setProducts] = useState<IProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -179,7 +181,7 @@ export default function ProductManagementScreen() {
             </TouchableOpacity>
           </>
         )}
-      </View>
+      </View>}
     </View>
   );
 
@@ -286,7 +288,7 @@ export default function ProductManagementScreen() {
         onPress={() => router.push("/(tabs)/catalog/products/form" as any)}
       >
         <Ionicons name="add" size={25} color={colors.textInverse} />
-      </TouchableOpacity>
+      </TouchableOpacity>}
     </View>
   );
 }
