@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { useRouter } from 'expo-router';
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ClientCard } from '../../../components/cards';
 import { useClients } from '../../../hooks';
+import { usePermissions } from '../../../hooks/usePermissions';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { IClient } from '../../../types';
 
@@ -23,9 +24,11 @@ const DEBOUNCE_DELAY = 400;
 export default function ClientsListScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { clients, loading, error, refetch, search, setSearch } = useClients();
+  const { canManageClients, canViewClients } = usePermissions();
+  useEffect(() => { if (!canViewClients) router.replace('/(tabs)/profile' as any); }, [canViewClients, router]);
+  const { clients, loading, error, refetch, search, setSearch } = useClients(canViewClients);
   const [filteredSearch, setFilteredSearch] = useState('');
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounced search
   const handleSearchChange = (text: string) => {
@@ -153,7 +156,6 @@ export default function ClientsListScreen() {
           data={clients}
           renderItem={renderClient}
           keyExtractor={(item) => item.id}
-          estimatedItemSize={100}
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl
@@ -168,13 +170,13 @@ export default function ClientsListScreen() {
       )}
 
       {/* FAB - Create Client */}
-      <TouchableOpacity
+      {canManageClients && <TouchableOpacity
         style={[styles.fab, { bottom: insets.bottom + spacing.lg }]}
         onPress={handleCreateClient}
         activeOpacity={0.8}
       >
         <Ionicons name="add" size={24} color={colors.textInverse} />
-      </TouchableOpacity>
+      </TouchableOpacity>}
     </View>
   );
 }

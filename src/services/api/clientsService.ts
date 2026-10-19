@@ -12,6 +12,7 @@ import { IClient, IClientDetail, IDebtor, IOrder, IPayment } from '../../types';
 import { client } from './client';
 import { IAddress } from '../../types';
 import { ledgerService } from './ledgerService';
+import { salesService } from './salesService';
 
 // Shape real que devuelve el backend (CustomerDto)
 interface CustomerDto {
@@ -172,14 +173,51 @@ export const clientsService = {
    */
   async getClientDetail(id: string): Promise<IClientDetail> {
     const base = await this.getClientById(id);
-    const ledger = await ledgerService.getCustomerLedger(id).catch(() => null);
-    return { ...base, totalDebt: ledger?.balance ?? base.totalDebt, orderHistory: [] };
+    const [ledger, historyResult] = await Promise.all([
+      ledgerService.getCustomerLedger(id).catch(() => null),
+      this.getClientHistory(id)
+        .then(orderHistory => ({ orderHistory, orderHistoryError: undefined as string | undefined }))
+        .catch(() => ({ orderHistory: [] as IOrder[], orderHistoryError: 'No se pudo cargar el historial de pedidos. Actualizá para volver a intentar.' })),
+    ]);
+    const orderHistory = historyResult.orderHistory;
+    return {
+      ...base,
+      totalDebt: ledger?.balance ?? base.totalDebt,
+      orderHistory,
+      ...(historyResult.orderHistoryError ? { orderHistoryError: historyResult.orderHistoryError } : {}),
+      ...(orderHistory[0]?.createdAt ? { lastOrderDate: orderHistory[0].createdAt } : {}),
+    };
   },
 
-  /** TODO: requiere endpoint tipo GET /customer/{id}/history en el backend */
-  async getClientHistory(_id: string, _from?: string, _to?: string): Promise<IOrder[]> {
-    console.warn('getClientHistory: endpoint no implementado en el backend aún');
-    return [];
+  /** GET /orders?customerId={id}; el backend no ofrece un endpoint de historial dedicado. */
+  async getClientHistory(id: string, _from?: string, _to?: string): Promise<IOrder[]> {
+    const customerId = Number(id);
+    if (!Number.isInteger(customerId) || customerId < 1) return [];
+    const orders = await salesService.getOrdersWithTruckDetails({ customerId });
+    return orders.map(order => {
+      const apiStatus = order.status;
+      const status: IOrder['status'] = apiStatus === 'DELIVERED' ? 'delivered'
+        : apiStatus === 'CANCELLED' ? 'cancelled'
+          : apiStatus === 'IN_ROUTE' ? 'preparing' : 'pending';
+      return {
+        id: order.id,
+        code: order.code,
+        client: { id, businessName: order.customerName, taxId: '' },
+        items: (order.items ?? []).map(item => ({ productId: item.productId, productName: item.productName, unit: '', qty: item.quantity, unitPrice: 0, subtotal: 0 })),
+        deliveryAddress: { id: '', street: '', city: '' },
+        deliveryType: 'delivery',
+        paymentMethod: 'cash',
+        amountPaid: 0,
+        pendingDebt: 0,
+        total: order.total,
+        status,
+        createdBy: '',
+        createdAt: order.createdAt,
+        truckId: order.truckId,
+        truckLicensePlate: order.truckLicensePlate,
+        truckDriverName: order.truckDriverName,
+      };
+    });
   },
 
   async getDebtors(): Promise<{ items: IDebtor[] }> {

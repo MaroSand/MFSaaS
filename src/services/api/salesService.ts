@@ -15,11 +15,15 @@ export interface OrderListItem {
   id: string;
   code: string;
   customerName: string;
+  customerId?: string;
   status: ApiOrderStatus;
   total: number;
   itemCount: number;
   createdAt: string;
   truckId?: string;
+  truckLicensePlate?: string;
+  truckDriverName?: string;
+  items?: { productId: string; productName: string; quantity: number }[];
 }
 
 type RawOrder = Record<string, any>;
@@ -45,16 +49,26 @@ function unwrapOne(payload: unknown): RawOrder {
 
 function toOrderListItem(order: RawOrder): OrderListItem {
   const customer = order.customer ?? order.client ?? {};
-  const items = Array.isArray(order.items) ? order.items : [];
+  const truck = order.truck ?? order.assignedTruck ?? order.deliveryTruck ?? {};
+  const rawItems = order.items ?? order.orderItems ?? order.details;
+  const items = Array.isArray(rawItems) ? rawItems : [];
   return {
     id: String(order.id ?? order.orderId ?? ''),
     code: String(order.code ?? order.orderNumber ?? order.id ?? 'Pedido'),
     customerName: String(order.customerName ?? customer.businessName ?? customer.name ?? 'Cliente'),
+    customerId: order.customerId == null && order.clientId == null && customer.id == null ? undefined : String(order.customerId ?? order.clientId ?? customer.id),
     status: String(order.status ?? 'PENDING').toUpperCase() as ApiOrderStatus,
     total: Number(order.totalAmount ?? order.total ?? order.amount ?? 0),
     itemCount: items.reduce((sum: number, item: RawOrder) => sum + Number(item.quantity ?? item.qty ?? 0), 0),
     createdAt: String(order.createdAt ?? order.createdDate ?? ''),
-    truckId: order.truckId == null && order.truck?.id == null ? undefined : String(order.truckId ?? order.truck.id),
+    truckId: order.truckId == null && order.assignedTruckId == null && truck.id == null && truck.truckId == null ? undefined : String(order.truckId ?? order.assignedTruckId ?? truck.id ?? truck.truckId),
+    truckLicensePlate: String(order.truckLicensePlate ?? order.licensePlate ?? truck.licensePlate ?? truck.plate ?? truck.plateNumber ?? '') || undefined,
+    truckDriverName: String(order.truckDriverName ?? truck.driverName ?? truck.driver?.fullName ?? truck.driver?.user?.fullName ?? truck.user?.fullName ?? '') || undefined,
+    items: items.map((item: RawOrder) => ({
+      productId: String(item.productId ?? item.product?.id ?? ''),
+      productName: String(item.productName ?? item.product?.name ?? item.name ?? 'Producto'),
+      quantity: Number(item.quantity ?? item.qty ?? 0),
+    })),
   };
 }
 
@@ -62,6 +76,31 @@ export const salesService = {
   async getOrders(filters: { customerId?: number; truckId?: number; status?: ApiOrderStatus } = {}): Promise<OrderListItem[]> {
     const response = await client.get<unknown>('/orders', { params: filters });
     return unwrapList(response.data).map(toOrderListItem);
+  },
+
+  async getOrdersWithTruckDetails(filters: { customerId?: number; truckId?: number; status?: ApiOrderStatus } = {}): Promise<OrderListItem[]> {
+    const orders = await this.getOrders(filters);
+    return Promise.all(orders.map(async order => {
+      if (!order.id || (order.truckId && order.truckLicensePlate)) return order;
+      try {
+        const detail = toOrderListItem(await this.getOrder(order.id));
+        return {
+          ...order,
+          truckId: detail.truckId ?? order.truckId,
+          truckLicensePlate: detail.truckLicensePlate ?? order.truckLicensePlate,
+          truckDriverName: detail.truckDriverName ?? order.truckDriverName,
+        };
+      } catch { return order; }
+    }));
+  },
+
+  async getOrdersByTruck(truckId: number): Promise<OrderListItem[]> {
+    const orders = await this.getOrders({ truckId });
+    return Promise.all(orders.map(async order => {
+      if (order.items?.length || !order.id) return order;
+      try { return toOrderListItem(await this.getOrder(order.id)); }
+      catch { return order; }
+    }));
   },
 
   async getOrder(id: string): Promise<RawOrder> {
@@ -80,18 +119,20 @@ export const salesService = {
   },
 
   /** Actualiza el pedido completo para asignarlo; el backend documenta PUT con OrderRequest obligatorio. */
-  async assignOrderToTruck(id: string, truckId: number): Promise<void> {
+  async assignOrderToTruck(id: string, truckId: number, resolvedDeliveryAddressId?: number): Promise<void> {
     const order = await this.getOrder(id);
     const customerId = Number(order.customerId ?? order.customer?.id ?? order.clientId ?? order.client?.id);
-    const addressId = Number(order.deliveryAddressId ?? order.deliveryAddress?.id ?? order.addressId ?? order.address?.id);
-    const items = Array.isArray(order.items) ? order.items.map((item: RawOrder) => ({
-      productId: Number(item.productId ?? item.product?.id),
+    const address = order.deliveryAddress ?? order.address ?? order.shippingAddress ?? {};
+    const addressId = Number(resolvedDeliveryAddressId ?? order.deliveryAddressId ?? order.addressId ?? order.address?.id ?? order.deliveryAddress?.id ?? order.shippingAddressId ?? address.addressId);
+    const rawItems = order.items ?? order.orderItems ?? order.details ?? order.lines;
+    const items = Array.isArray(rawItems) ? rawItems.map((item: RawOrder) => ({
+      productId: Number(item.productId ?? item.product?.id ?? item.product?.productId),
       quantity: Number(item.quantity ?? item.qty),
     })) : [];
     if (!Number.isInteger(customerId) || customerId < 1 || !Number.isInteger(addressId) || addressId < 1 || !items.length || items.some(item => !Number.isInteger(item.productId) || item.productId < 1 || !Number.isInteger(item.quantity) || item.quantity < 1)) {
       throw new Error('El backend no devolvió cliente, dirección e ítems del pedido con IDs válidos. No se envió el cambio para evitar sobrescribir el pedido incompleto.');
     }
-    const createdById = Number(order.createdById ?? order.createdBy?.id);
+    const createdById = Number(order.createdById ?? order.createdBy?.id ?? order.userId);
     await this.updateOrder(id, {
       customerId,
       deliveryAddressId: addressId,

@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { clientsService } from '../../../services/api/clientsService';
+import { usePermissions } from '../../../hooks/usePermissions';
 import { colors, radius, spacing, typography } from '../../../theme';
 import { IAddress } from '../../../types';
 import { FormErrorBanner } from '../../../components/ui/FormErrorBanner';
@@ -30,6 +31,8 @@ type ClientFormData = {
 export default function ClientFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canManageClients } = usePermissions();
+  useEffect(() => { if (!canManageClients) router.replace('/(tabs)/clients' as any); }, [canManageClients, router]);
   const { clientId } = useLocalSearchParams<{ clientId?: string }>();
   
   const [loading, setLoading] = useState(!!clientId);
@@ -76,10 +79,11 @@ export default function ClientFormScreen() {
   };
 
   useEffect(() => {
+    if (!canManageClients) return;
     if (isEditMode && clientId) {
       loadClient();
     }
-  }, [clientId]);
+  }, [clientId, canManageClients]);
 
   const loadClient = async () => {
     if (!clientId) return;

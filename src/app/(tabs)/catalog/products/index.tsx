@@ -1,9 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCategories } from '../../../../hooks';
+import { usePermissions } from '../../../../hooks/usePermissions';
 import { productsService } from '../../../../services/api/productsService';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { IProduct } from '../../../../types';
@@ -11,7 +12,9 @@ import { IProduct } from '../../../../types';
 export default function ProductManagementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { categories } = useCategories();
+  const { canManageProducts, canViewCatalog } = usePermissions();
+  useEffect(() => { if (!canViewCatalog) router.replace('/(tabs)/orders' as any); }, [canViewCatalog, router]);
+  const { categories } = useCategories(canViewCatalog);
   const [products, setProducts] = useState<IProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +84,7 @@ export default function ProductManagementScreen() {
 
   const renderItem = ({ item }: { item: IProduct }) => (
     <View style={styles.card}>
-      <TouchableOpacity style={styles.mainInfo} onPress={() => router.push({
+      <TouchableOpacity style={styles.mainInfo} onPress={() => canManageProducts && router.push({
         pathname: '/(tabs)/catalog/products/form' as any,
         params: { productId: item.id },
       })}>
@@ -89,7 +92,7 @@ export default function ProductManagementScreen() {
         <Text style={styles.meta}>{item.category.name} · {'$' + item.price.toLocaleString('es-AR')}</Text>
         {!!item.sku && <Text style={styles.sku}>SKU: {item.sku}</Text>}
       </TouchableOpacity>
-      <View style={styles.actions}>
+      {canManageProducts && <View style={styles.actions}>
         {busyId === item.id ? <ActivityIndicator color={colors.primary} /> : (
           <>
             <TouchableOpacity accessibilityLabel={item.active ? 'Desactivar' : 'Activar'} onPress={() => toggleActive(item)}>
@@ -100,7 +103,7 @@ export default function ProductManagementScreen() {
             </TouchableOpacity>
           </>
         )}
-      </View>
+      </View>}
     </View>
   );
 
@@ -131,9 +134,9 @@ export default function ProductManagementScreen() {
           ListEmptyComponent={<Text style={styles.helper}>Todavía no hay productos.</Text>}
         />
       )}
-      <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + spacing.lg }]} onPress={() => router.push('/(tabs)/catalog/products/form' as any)}>
+      {canManageProducts && <TouchableOpacity style={[styles.fab, { bottom: insets.bottom + spacing.lg }]} onPress={() => router.push('/(tabs)/catalog/products/form' as any)}>
         <Ionicons name="add" size={25} color={colors.textInverse} />
-      </TouchableOpacity>
+      </TouchableOpacity>}
     </View>
   );
 }

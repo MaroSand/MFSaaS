@@ -1,8 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { colors } from "../../theme";
+import { usePermissions } from "../../hooks/usePermissions";
 
 export default function TabsLayout() {
+  const permissions = usePermissions();
+  const hidden: { href: null } = { href: null };
   return (
     <Tabs
       screenOptions={{
@@ -23,6 +26,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="catalog/index"
         options={{
+          ...(permissions.canViewCatalog ? {} : hidden),
           title: "Catálogo",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="grid-outline" size={size} color={color} />
@@ -58,6 +62,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="orders/index"
         options={{
+          ...(permissions.canViewOrders ? {} : hidden),
           title: "Pedidos",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="clipboard-outline" size={size} color={color} />
@@ -67,6 +72,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="logistics/index"
         options={{
+          ...(permissions.canViewLogistics ? {} : hidden),
           title: "Camiones",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="bus-outline" size={size} color={color} />
@@ -76,6 +82,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="clients/index"
         options={{
+          ...(permissions.canViewClients ? {} : hidden),
           title: "Clientes",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" size={size} color={color} />
@@ -109,7 +116,6 @@ export default function TabsLayout() {
       />
       <Tabs.Screen name="clients/ledger" options={{ href: null }} />
       <Tabs.Screen name="users/index" options={{ href: null }} />
-      <Tabs.Screen name="logistics/orders" options={{ href: null }} />
       <Tabs.Screen
         name="reports/index"
         options={{ href: null }}

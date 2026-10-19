@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { productsService } from "../../../services/api/productsService";
 import { useCategories } from "../../../hooks";
+import { usePermissions } from "../../../hooks/usePermissions";
 import { useCartStore } from "../../../store/cartStore";
 import { IProduct } from "../../../types";
 
@@ -16,7 +17,8 @@ export default function ProductDetailScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
   const router = useRouter();
   const addItem = useCartStore((state) => state.addItem);
-  const { categories } = useCategories();
+  const { canViewCatalog } = usePermissions();
+  const { categories } = useCategories(canViewCatalog);
 
   const [product, setProduct] = useState<IProduct | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,7 +40,7 @@ export default function ProductDetailScreen() {
     }
   }, [productId, categories]);
 
-  useEffect(() => { loadProduct(); }, [loadProduct]);
+  useEffect(() => { if (canViewCatalog) loadProduct(); else router.replace('/(tabs)/orders' as any); }, [canViewCatalog, loadProduct, router]);
 
   if (loading) {
     return (

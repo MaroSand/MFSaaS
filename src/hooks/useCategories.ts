@@ -11,13 +11,18 @@ interface UseCategoriesReturn {
   setSearch: (search: string) => void;
 }
 
-export const useCategories = (): UseCategoriesReturn => {
+export const useCategories = (enabled = true): UseCategoriesReturn => {
   const [allCategories, setAllCategories] = useState<ICategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
   const [search, setSearch] = useState('');
 
   const fetchCategories = useCallback(async () => {
+    if (!enabled) {
+      setAllCategories([]);
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       setError(null);
@@ -29,7 +34,7 @@ export const useCategories = (): UseCategoriesReturn => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [enabled]);
 
   useEffect(() => {
     fetchCategories();

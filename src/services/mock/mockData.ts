@@ -52,42 +52,42 @@ export const MOCK_PRODUCTS: IProduct[] = [
 export const MOCK_CLIENTS: IClient[] = [
   {
     id: 'cl1', businessName: 'Carnicería Don Roberto', taxId: '20-32456789-1',
-    phone: '3644987654', email: 'roberto@example.com', totalDebt: 0,
+    phone: '3644987654', email: 'roberto@example.com', active: true, totalDebt: 0,
     addresses: [
       { id: 'a1', street: 'Belgrano 890', city: 'Presidencia Roque Sáenz Peña', label: 'Sucursal' },
     ],
   },
   {
     id: 'cl2', businessName: 'Almacén López María', taxId: '27-28765432-9',
-    phone: '3644654321', email: 'maria@example.com', totalDebt: 49400,
+    phone: '3644654321', email: 'maria@example.com', active: true, totalDebt: 49400,
     addresses: [
       { id: 'a2', street: 'Calle Rivadavia 567', city: 'Presidencia Roque Sáenz Peña', label: 'Local' },
     ],
   },
   {
     id: 'cl3', businessName: 'Fiambrería El Centro', taxId: '23-45678901-2',
-    phone: '3644111222', email: 'centro@example.com', totalDebt: 28500,
+    phone: '3644111222', email: 'centro@example.com', active: true, totalDebt: 28500,
     addresses: [
       { id: 'a3', street: 'Av. Gral. San Martín 1500', city: 'Presidencia Roque Sáenz Peña', label: 'Centro' },
     ],
   },
   {
     id: 'cl4', businessName: 'Verdulería Fresca & Natural', taxId: '24-56789012-3',
-    phone: '3644333444', email: 'verduleria@example.com', totalDebt: 15800,
+    phone: '3644333444', email: 'verduleria@example.com', active: true, totalDebt: 15800,
     addresses: [
       { id: 'a4', street: 'Mitre 234', city: 'Presidencia Roque Sáenz Peña', label: 'Deposito' },
     ],
   },
   {
     id: 'cl5', businessName: 'Almacén de Barrio Don Juan', taxId: '26-67890123-4',
-    phone: '3644555666', email: 'donjuan@example.com', totalDebt: 0,
+    phone: '3644555666', email: 'donjuan@example.com', active: true, totalDebt: 0,
     addresses: [
       { id: 'a5', street: 'Julio A. Roca 456', city: 'Presidencia Roque Sáenz Peña', label: 'Principal' },
     ],
   },
   {
     id: 'cl6', businessName: 'Supermercado Familia García', taxId: '25-78901234-5',
-    phone: '3644777888', email: 'familia@example.com', totalDebt: 0,
+    phone: '3644777888', email: 'familia@example.com', active: true, totalDebt: 0,
     addresses: [
       { id: 'a6', street: 'Hipólito Yrigoyen 890', city: 'Presidencia Roque Sáenz Peña', label: 'Hipólito' },
       { id: 'a6b', street: 'Avenida 25 de Mayo 123', city: 'Presidencia Roque Sáenz Peña', label: 'Mayo' },
@@ -95,14 +95,14 @@ export const MOCK_CLIENTS: IClient[] = [
   },
   {
     id: 'cl7', businessName: 'Negocio de Congelados Arturo', taxId: '22-89012345-6',
-    phone: '3644999000', email: 'arturo@example.com', totalDebt: 35200,
+    phone: '3644999000', email: 'arturo@example.com', active: true, totalDebt: 35200,
     addresses: [
       { id: 'a7', street: 'Av. de las Américas 345', city: 'Presidencia Roque Sáenz Peña', label: 'Fabrica' },
     ],
   },
   {
     id: 'cl8', businessName: 'Rotisería El Campestre', taxId: '21-90123456-7',
-    phone: '3644111333', email: 'campestre@example.com', totalDebt: 0,
+    phone: '3644111333', email: 'campestre@example.com', active: true, totalDebt: 0,
     addresses: [
       { id: 'a8', street: 'Sarmiento 567', city: 'Presidencia Roque Sáenz Peña', label: 'Salón' },
     ],

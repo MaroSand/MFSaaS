@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FormErrorBanner } from '../../../../components/ui/FormErrorBanner';
 import { useCategories } from '../../../../hooks';
+import { usePermissions } from '../../../../hooks/usePermissions';
 import { ProductWriteRequest, productsService } from '../../../../services/api/productsService';
 import { colors, radius, spacing, typography } from '../../../../theme';
 import { parseApiError } from '../../../../utils/apiErrors';
@@ -12,10 +13,12 @@ import { parseApiError } from '../../../../utils/apiErrors';
 export default function ProductFormScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { canManageProducts } = usePermissions();
+  useEffect(() => { if (!canManageProducts) router.replace('/(tabs)/catalog' as any); }, [canManageProducts, router]);
   const params = useLocalSearchParams<{ productId?: string }>();
   const productId = Array.isArray(params.productId) ? params.productId[0] : params.productId;
   const editing = !!productId;
-  const { categories } = useCategories();
+  const { categories } = useCategories(canManageProducts);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [sku, setSku] = useState('');
@@ -66,8 +69,8 @@ export default function ProductFormScreen() {
   };
 
   useEffect(() => {
-    loadProduct();
-  }, [productId, categories]);
+    if (canManageProducts) loadProduct();
+  }, [productId, categories, canManageProducts]);
 
   const submit = async () => {
     setAttempted(true);
